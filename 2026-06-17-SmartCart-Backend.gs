@@ -1,0 +1,250 @@
+/**
+ * SmartCart — Runtime backend (Web App)
+ * Locked schema ref: Studio/Projects/SmartCart/PROJECT.md (2026-06-17)
+ *
+ * Lives in the same Apps Script project as 2026-06-17-SmartCart-SheetSetup.gs
+ * ("SmartCart Setup"), as a second file. Add it via Files > + > Script,
+ * name it "Backend", paste this in.
+ *
+ * Mirrors the Golf project's webhook pattern (apps-script.gs) for consistency:
+ * doGet for reads, doPost + secret token for writes, json_() / sanitize_()
+ * helpers, plain-text POST body (no custom headers) to avoid CORS preflight.
+ *
+ * SETUP (one-time, after pasting):
+ * 1. Project Settings > Script Properties > add WEBHOOK_SECRET = <random string>.
+ * 2. Deploy > New deployment > Web app > Execute as: Me, Access: Anyone.
+ * 3. Copy the Web app URL into the PWA as SHEETS_URL (same pattern as Golf's
+ *    index.html: fetch(SHEETS_URL, {method:"POST", body: JSON.stringify({...payload, secret: WEBHOOK_SECRET})})).
+ * 4. Every code change requires a NEW deployment version (Deploy > Manage
+ *    deployments > edit > New version) — saving alone does not update the
+ *    live Web app URL's behaviour.
+ */
+
+// ── GET — reads for PWA autocomplete / dropdowns ───────────────────────────
+
+function doGet(e) {
+  const action = e && e.parameter && e.parameter.action;
+  const ss = SpreadsheetApp.getActive();
+
+  try {
+    if (action === 'groceryList') {
+      return json_({ ok: true, items: getGroceryListItems_(ss) });
+    }
+    if (action === 'categories') {
+      return json_({ ok: true, categories: getCategories_(ss) });
+    }
+    return json_({ ok: true, message: 'SmartCart webhook live. Actions: groceryList, categories (GET); addReceipt (POST).' });
+  } catch (err) {
+    return json_({ ok: false, error: String(err) });
+  }
+}
+
+// ── POST — receipt / manual purchase writes ─────────────────────────────────
+
+function doPost(e) {
+  try {
+    const p = JSON.parse(e.postData.contents);
+
+    const secret = PropertiesService.getScriptProperties().getProperty('WEBHOOK_SECRET');
+    if (secret && p.secret !== secret) {
+      return json_({ ok: false, error: 'Unauthorised.' });
+    }
+
+    if (p.action === 'addReceipt') {
+      return handleAddReceipt_(p);
+    }
+
+    return json_({ ok: false, error: 'Unknown action: ' + p.action });
+  } catch (err) {
+    return json_({ ok: false, error: String(err) });
+  }
+}
+
+// ── Receipt handling ─────────────────────────────────────────────────────────
+
+/**
+ * Expected payload:
+ * {
+ *   action: 'addReceipt',
+ *   secret: '...',
+ *   store: 'Save-On-Foods',
+ *   date: '2026-06-17',          // yyyy-mm-dd
+ *   receiptId: 'uuid-or-blank',
+ *   source: 'Receipt Photo' | 'Email' | 'Manual',
+ *   items: [
+ *     {
+ *       itemRaw, itemCanonical, brand, packageSize, qty,
+ *       pricePaid, regularPrice, unitPrice,
+ *       category, subcategory, fsriCategory, notes,
+ *       defaultUnit, freezable   // 'Y'/'N', only used if item is new to GroceryList
+ *     }, ...
+ *   ]
+ * }
+ */
+function handleAddReceipt_(p) {
+  const ss = SpreadsheetApp.getActive();
+  const store = sanitize_(p.store || '');
+  const date = sanitize_(p.date || formatDate_(new Date()));
+  const receiptId = sanitize_(p.receiptId || Utilities.getUuid());
+  const source = sanitize_(p.source || 'Manual');
+  const items = Array.isArray(p.items) ? p.items : [];
+
+  if (items.length === 0) {
+    return json_({ ok: false, error: 'No items in payload.' });
+  }
+
+  const purchasesSh = ss.getSheetByName('Purchases');
+  const priceHistSh = ss.getSheetByName('PriceHistory');
+
+  const purchaseRows = [];
+  const priceHistRows = [];
+
+  items.forEach(function (item) {
+    const itemCanonical = sanitize_(item.itemCanonical || item.itemRaw || '');
+    const pricePaid = parseFloat(item.pricePaid) || 0;
+    const unitPrice = parseFloat(item.unitPrice) || 0;
+
+    purchaseRows.push([
+      date,
+      store,
+      sanitize_(item.itemRaw || ''),
+      itemCanonical,
+      sanitize_(item.brand || ''),
+      sanitize_(item.packageSize || ''),
+      parseFloat(item.qty) || 1,
+      pricePaid,
+      parseFloat(item.regularPrice) || pricePaid,
+      unitPrice,
+      sanitize_(item.category || ''),
+      sanitize_(item.subcategory || ''),
+      sanitize_(item.fsriCategory || ''),
+      source,
+      receiptId,
+      sanitize_(item.notes || '')
+    ]);
+
+    priceHistRows.push([
+      itemCanonical, store, date, pricePaid, unitPrice, source
+    ]);
+
+    upsertGroceryListItem_(ss, {
+      itemCanonical: itemCanonical,
+      category: sanitize_(item.category || ''),
+      subcategory: sanitize_(item.subcategory || ''),
+      defaultUnit: sanitize_(item.defaultUnit || ''),
+      store: store,
+      date: date,
+      price: pricePaid,
+      unitPrice: unitPrice,
+      freezable: item.freezable === 'Y' || item.freezable === 'N' ? item.freezable : null
+    });
+  });
+
+  if (purchaseRows.length > 0) {
+    purchasesSh.getRange(purchasesSh.getLastRow() + 1, 1, purchaseRows.length, purchaseRows[0].length)
+      .setValues(purchaseRows);
+  }
+  if (priceHistRows.length > 0) {
+    priceHistSh.getRange(priceHistSh.getLastRow() + 1, 1, priceHistRows.length, priceHistRows[0].length)
+      .setValues(priceHistRows);
+  }
+
+  return json_({ ok: true, receiptId: receiptId, itemsAdded: purchaseRows.length });
+}
+
+// ── GroceryList upsert ───────────────────────────────────────────────────────
+
+function upsertGroceryListItem_(ss, item) {
+  const sh = ss.getSheetByName('GroceryList');
+  const lastRow = sh.getLastRow();
+  const key = item.itemCanonical.trim().toLowerCase();
+
+  let matchRow = -1;
+  if (lastRow >= 2) {
+    const names = sh.getRange(2, 1, lastRow - 1, 1).getValues();
+    for (let i = 0; i < names.length; i++) {
+      if (String(names[i][0]).trim().toLowerCase() === key) {
+        matchRow = i + 2; // 1-based, +1 for header
+        break;
+      }
+    }
+  }
+
+  if (matchRow === -1) {
+    // New item — append.
+    sh.getRange(sh.getLastRow() + 1, 1, 1, 10).setValues([[
+      item.itemCanonical,
+      item.category,
+      item.subcategory,
+      item.defaultUnit,
+      item.store,
+      item.date,
+      item.price,
+      item.unitPrice,
+      item.freezable || 'N',
+      'Y'
+    ]]);
+    return;
+  }
+
+  // Existing item — update category (in case reclassified), default unit
+  // (only if provided), preferred stores (append/dedupe), last purchase fields.
+  const row = sh.getRange(matchRow, 1, 1, 10).getValues()[0];
+  const existingStores = String(row[4] || '').split(',').map(s => s.trim()).filter(Boolean);
+  if (item.store && existingStores.indexOf(item.store) === -1) {
+    existingStores.push(item.store);
+  }
+
+  sh.getRange(matchRow, 2).setValue(item.category || row[1]);
+  sh.getRange(matchRow, 3).setValue(item.subcategory || row[2]);
+  if (item.defaultUnit) sh.getRange(matchRow, 4).setValue(item.defaultUnit);
+  sh.getRange(matchRow, 5).setValue(existingStores.join(', '));
+  sh.getRange(matchRow, 6).setValue(item.date);
+  sh.getRange(matchRow, 7).setValue(item.price);
+  sh.getRange(matchRow, 8).setValue(item.unitPrice);
+  if (item.freezable) sh.getRange(matchRow, 9).setValue(item.freezable);
+}
+
+// ── Reads for PWA ────────────────────────────────────────────────────────────
+
+function getGroceryListItems_(ss) {
+  const sh = ss.getSheetByName('GroceryList');
+  const lastRow = sh.getLastRow();
+  if (lastRow < 2) return [];
+  const rows = sh.getRange(2, 1, lastRow - 1, 10).getValues();
+  return rows
+    .filter(r => r[0]) // skip blank rows
+    .map(r => ({
+      item: r[0], category: r[1], subcategory: r[2], defaultUnit: r[3],
+      preferredStores: r[4], lastPurchased: formatDate_(r[5]), lastPrice: r[6],
+      lastUnitPrice: r[7], freezable: r[8], active: r[9]
+    }));
+}
+
+function getCategories_(ss) {
+  const sh = ss.getSheetByName('Categories');
+  const lastRow = sh.getLastRow();
+  if (lastRow < 2) return [];
+  return sh.getRange(2, 1, lastRow - 1, 2).getValues()
+    .filter(r => r[0])
+    .map(r => ({ category: r[0], fsriCategory: r[1] }));
+}
+
+// ── Shared helpers (mirrors Golf's apps-script.gs conventions) ─────────────
+
+function json_(obj) {
+  return ContentService
+    .createTextOutput(JSON.stringify(obj))
+    .setMimeType(ContentService.MimeType.JSON);
+}
+
+function sanitize_(v) {
+  if (typeof v !== 'string') return v;
+  return /^[=+\-@|%`]/.test(v) ? "'" + v : v;
+}
+
+function formatDate_(d) {
+  if (!d) return '';
+  if (d instanceof Date) return d.toLocaleDateString('en-CA');
+  return String(d);
+}

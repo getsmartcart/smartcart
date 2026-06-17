@@ -1,0 +1,611 @@
+<!-- SmartCart -->
+<!-- See PROJECT.md for full changelog and version history -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#0d7377">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="SmartCart">
+<title>SmartCart</title>
+<style>
+  :root {
+    /* SmartCart theme — distinct from Golf's green/cream palette */
+    --primary:        #0d7377;
+    --primary-hover:  #0a5c5f;
+    --primary-pale:   #e3f2f2;
+    --accent:         #ee6c4d;
+    --bg:             #f6f7f5;
+    --card:           #ffffff;
+    --text-primary:   #1a1a1a;
+    --text-secondary: #6b7280;
+    --text-muted:     #9ca3af;
+    --border:         rgba(0,0,0,0.08);
+
+    /* Type scale — use these everywhere, no one-off sizes */
+    --fs-title:    20px;  /* header app name */
+    --fs-tab:      13px;  /* tab bar labels */
+    --fs-section:  18px;  /* screen section headers */
+    --fs-body:     15px;  /* body copy */
+    --fs-caption:  13px;  /* secondary/caption text */
+    --fs-micro:    11px;  /* footer version line */
+
+    --header-h: 56px;
+    --tabbar-h: 48px;
+    --footer-h: 26px;
+    --shell-max: 420px;
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0; padding: 0;
+    background: var(--bg);
+    color: var(--text-primary);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .app-shell {
+    max-width: var(--shell-max);
+    margin: 0 auto;
+    min-height: 100vh;
+    position: relative;
+    background: var(--bg);
+  }
+
+  /* ── Fixed chrome — header, tab bar, footer never move or resize between screens ── */
+
+  .app-header,
+  .tab-bar,
+  .app-footer {
+    position: fixed;
+    left: 50%;
+    width: 100%;
+    max-width: var(--shell-max);
+    transform: translateX(-50%);
+    z-index: 100;
+  }
+
+  .app-header {
+    top: 0;
+    height: var(--header-h);
+    background: var(--card);
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    padding: 0 18px;
+  }
+
+  .app-title {
+    font-size: var(--fs-title);
+    font-weight: 700;
+    color: var(--primary);
+    letter-spacing: -0.01em;
+  }
+
+  .tab-bar {
+    top: var(--header-h);
+    height: var(--tabbar-h);
+    background: var(--card);
+    border-bottom: 1px solid var(--border);
+    display: flex;
+  }
+
+  .tab {
+    flex: 1;
+    border: none;
+    background: none;
+    cursor: pointer;
+    font-size: var(--fs-tab);
+    font-weight: 500;
+    color: var(--text-secondary);
+    font-family: inherit;
+    position: relative;
+    padding: 0;
+  }
+
+  .tab.active {
+    color: var(--primary);
+    font-weight: 700;
+  }
+
+  .tab.active::after {
+    content: "";
+    position: absolute;
+    bottom: 0; left: 12px; right: 12px;
+    height: 3px;
+    border-radius: 2px 2px 0 0;
+    background: var(--primary);
+  }
+
+  .app-footer {
+    bottom: 0;
+    height: var(--footer-h);
+    background: var(--bg);
+    border-top: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: var(--fs-micro);
+    color: var(--text-muted);
+  }
+
+  /* ── Content area — only this scrolls / swaps; chrome above is static ── */
+
+  main.content {
+    padding-top: calc(var(--header-h) + var(--tabbar-h) + 16px);
+    padding-bottom: calc(var(--footer-h) + 16px);
+    padding-left: 16px;
+    padding-right: 16px;
+    min-height: 100vh;
+  }
+
+  .screen { display: none; }
+  .screen.active { display: block; }
+
+  .placeholder-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 28px 20px;
+    text-align: center;
+    margin-top: 24px;
+  }
+
+  .placeholder-card h2 {
+    margin: 0 0 8px;
+    font-size: var(--fs-section);
+    font-weight: 700;
+    color: var(--text-primary);
+  }
+
+  .placeholder-card p {
+    margin: 0;
+    font-size: var(--fs-body);
+    color: var(--text-secondary);
+    line-height: 1.5;
+  }
+
+  .placeholder-card .phase-tag {
+    display: inline-block;
+    margin-top: 14px;
+    padding: 4px 10px;
+    border-radius: 999px;
+    background: var(--primary-pale);
+    color: var(--primary-hover);
+    font-size: var(--fs-caption);
+    font-weight: 600;
+  }
+
+  /* ── Scanner tab states ── */
+
+  .scanner-view { display: none; }
+  .scanner-view.active { display: block; }
+
+  .btn-primary {
+    display: block;
+    width: 100%;
+    margin-top: 18px;
+    padding: 14px 0;
+    border: none;
+    border-radius: 10px;
+    background: var(--primary);
+    color: #fff;
+    font-size: var(--fs-body);
+    font-weight: 700;
+    font-family: inherit;
+    cursor: pointer;
+  }
+
+  .btn-primary:disabled { background: var(--text-muted); cursor: default; }
+
+  .btn-secondary {
+    display: block;
+    width: 100%;
+    margin-top: 10px;
+    padding: 12px 0;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--card);
+    color: var(--primary);
+    font-size: var(--fs-body);
+    font-weight: 600;
+    font-family: inherit;
+    cursor: pointer;
+  }
+
+  .spinner {
+    width: 36px; height: 36px;
+    margin: 0 auto 14px;
+    border: 4px solid var(--primary-pale);
+    border-top-color: var(--primary);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .confirm-meta {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 14px;
+    margin-top: 8px;
+    display: flex;
+    gap: 10px;
+  }
+
+  .confirm-meta input {
+    flex: 1;
+    min-width: 0;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 8px 10px;
+    font-size: var(--fs-body);
+    font-family: inherit;
+    color: var(--text-primary);
+    background: var(--bg);
+    box-sizing: border-box;
+  }
+
+  .confirm-list { margin-top: 12px; }
+
+  .confirm-row {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 10px;
+    margin-bottom: 10px;
+    display: grid;
+    grid-template-columns: 1fr 46px 66px 22px;
+    gap: 6px;
+    align-items: center;
+  }
+
+  .confirm-row input {
+    width: 100%;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 7px 6px;
+    font-size: var(--fs-caption);
+    font-family: inherit;
+    color: var(--text-primary);
+    background: var(--bg);
+    box-sizing: border-box;
+  }
+
+  .confirm-row .row-remove {
+    border: none;
+    background: none;
+    color: var(--text-muted);
+    font-size: 18px;
+    line-height: 1;
+    cursor: pointer;
+    padding: 0;
+  }
+
+  .scanner-error-msg, .scanner-success-msg {
+    font-size: var(--fs-body);
+    color: var(--text-secondary);
+    margin: 0 0 4px;
+  }
+</style>
+</head>
+<body>
+
+<div class="app-shell">
+
+  <header class="app-header">
+    <span class="app-title">SmartCart</span>
+  </header>
+
+  <nav class="tab-bar">
+    <button class="tab active" data-tab="scanner">Scanner</button>
+    <button class="tab" data-tab="search">Search</button>
+    <button class="tab" data-tab="report">Report</button>
+    <button class="tab" data-tab="settings">Settings</button>
+  </nav>
+
+  <main class="content">
+
+    <section class="screen active" data-screen="scanner">
+
+      <div class="scanner-view active" data-view="idle">
+        <div class="placeholder-card">
+          <h2>Receipt Scanner</h2>
+          <p>Snap or upload a photo of your receipt — Claude reads it and you confirm before it's saved.</p>
+          <button id="scan-btn" type="button" class="btn-primary">Scan Receipt</button>
+          <input type="file" id="receipt-input" accept="image/*" capture="environment" style="display:none">
+        </div>
+      </div>
+
+      <div class="scanner-view" data-view="loading">
+        <div class="placeholder-card">
+          <div class="spinner"></div>
+          <p>Reading your receipt…</p>
+        </div>
+      </div>
+
+      <div class="scanner-view" data-view="confirm">
+        <div class="confirm-meta">
+          <input type="text" id="confirm-store" placeholder="Store">
+          <input type="date" id="confirm-date">
+        </div>
+        <div class="confirm-list" id="confirm-rows"></div>
+        <button id="confirm-add-row" type="button" class="btn-secondary">+ Add item</button>
+        <button id="confirm-save" type="button" class="btn-primary">Save All</button>
+      </div>
+
+      <div class="scanner-view" data-view="error">
+        <div class="placeholder-card">
+          <h2>Couldn't read that</h2>
+          <p class="scanner-error-msg" id="scanner-error-msg"></p>
+          <button id="scan-retry" type="button" class="btn-primary">Try Again</button>
+        </div>
+      </div>
+
+      <div class="scanner-view" data-view="success">
+        <div class="placeholder-card">
+          <h2>Saved</h2>
+          <p class="scanner-success-msg" id="scanner-success-msg"></p>
+          <button id="scan-done" type="button" class="btn-primary">Scan Another</button>
+        </div>
+      </div>
+
+      <datalist id="grocery-items"></datalist>
+
+    </section>
+
+    <section class="screen" data-screen="search">
+      <div class="placeholder-card">
+        <h2>On-Demand Search</h2>
+        <p>Search any item across Kamloops stores and online sources, with normalized unit pricing.</p>
+        <span class="phase-tag">Phase 3</span>
+      </div>
+    </section>
+
+    <section class="screen" data-screen="report">
+      <div class="placeholder-card">
+        <h2>Weekly Deal Report</h2>
+        <p>Automated Thursday flyer matching against your grocery list, delivered by email.</p>
+        <span class="phase-tag">Phase 2</span>
+      </div>
+    </section>
+
+    <section class="screen" data-screen="settings">
+      <div class="placeholder-card">
+        <h2>Settings</h2>
+        <p>Store preferences, report day, and account settings.</p>
+        <span class="phase-tag">Phase 2</span>
+      </div>
+    </section>
+
+  </main>
+
+  <footer class="app-footer">SmartCart v0.2.0 — Receipt Scanner</footer>
+
+</div>
+
+<script>
+  const tabs = document.querySelectorAll('.tab');
+  const screens = document.querySelectorAll('.screen');
+
+  tabs.forEach(function (tab) {
+    tab.addEventListener('click', function () {
+      tabs.forEach(function (t) { t.classList.remove('active'); });
+      screens.forEach(function (s) { s.classList.remove('active'); });
+      tab.classList.add('active');
+      document.querySelector('.screen[data-screen="' + tab.dataset.tab + '"]').classList.add('active');
+    });
+  });
+
+  // ── Receipt Scanner ──────────────────────────────────────────────────
+
+  const SHEETS_URL = 'https://script.google.com/macros/s/AKfycbyN69MiBxCf0KbSlJVbYFAqCdNSkIGfarEl_8DkyD_jjWa6Y1v7l6D6kFyMpBaDwSck/exec';
+  const WEBHOOK_SECRET = '12de64138fc45841b30b23e9df7a3cce';
+
+  const scannerViews = document.querySelectorAll('.scanner-view');
+  function showScannerView(name) {
+    scannerViews.forEach(function (v) { v.classList.toggle('active', v.dataset.view === name); });
+  }
+
+  const scanBtn = document.getElementById('scan-btn');
+  const fileInput = document.getElementById('receipt-input');
+  const retryBtn = document.getElementById('scan-retry');
+  const doneBtn = document.getElementById('scan-done');
+  const errorMsgEl = document.getElementById('scanner-error-msg');
+  const successMsgEl = document.getElementById('scanner-success-msg');
+  const confirmStoreEl = document.getElementById('confirm-store');
+  const confirmDateEl = document.getElementById('confirm-date');
+  const confirmRowsEl = document.getElementById('confirm-rows');
+  const addRowBtn = document.getElementById('confirm-add-row');
+  const saveAllBtn = document.getElementById('confirm-save');
+  const groceryDatalist = document.getElementById('grocery-items');
+
+  let groceryItemsCache = [];
+
+  function loadGroceryListOnce() {
+    fetch(SHEETS_URL + '?action=groceryList')
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (!data || !data.ok || !Array.isArray(data.items)) return;
+        groceryItemsCache = data.items;
+        groceryDatalist.innerHTML = '';
+        data.items.forEach(function (it) {
+          if (!it.item) return;
+          const opt = document.createElement('option');
+          opt.value = it.item;
+          groceryDatalist.appendChild(opt);
+        });
+      })
+      .catch(function () { /* autocomplete just stays empty — non-fatal */ });
+  }
+  loadGroceryListOnce();
+
+  function fileToBase64(file) {
+    return new Promise(function (resolve, reject) {
+      const reader = new FileReader();
+      reader.onload = function () {
+        const result = reader.result || '';
+        resolve(result.slice(result.indexOf(',') + 1));
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+  }
+
+  scanBtn.addEventListener('click', function () { fileInput.click(); });
+
+  fileInput.addEventListener('change', function () {
+    const file = fileInput.files[0];
+    if (!file) return;
+    showScannerView('loading');
+    fileToBase64(file).then(function (base64) {
+      return fetch(SHEETS_URL, {
+        method: 'POST',
+        body: JSON.stringify({
+          action: 'scanReceipt',
+          secret: WEBHOOK_SECRET,
+          imageBase64: base64,
+          mediaType: file.type || 'image/jpeg'
+        })
+      });
+    }).then(function (r) { return r.json(); })
+      .then(function (data) {
+        fileInput.value = '';
+        if (!data || !data.ok) {
+          errorMsgEl.textContent = (data && data.error) ? data.error : 'Could not read that receipt.';
+          showScannerView('error');
+          return;
+        }
+        confirmStoreEl.value = data.store || '';
+        confirmDateEl.value = data.date || '';
+        renderConfirmRows(Array.isArray(data.items) ? data.items : []);
+        showScannerView('confirm');
+      })
+      .catch(function () {
+        fileInput.value = '';
+        errorMsgEl.textContent = 'Network error — check your connection and try again.';
+        showScannerView('error');
+      });
+  });
+
+  function makeRow(item) {
+    const row = document.createElement('div');
+    row.className = 'confirm-row';
+    row.dataset.category = item.category || '';
+
+    const nameInput = document.createElement('input');
+    nameInput.type = 'text';
+    nameInput.setAttribute('list', 'grocery-items');
+    nameInput.className = 'row-name';
+    nameInput.value = item.itemRaw || '';
+    nameInput.placeholder = 'Item name';
+
+    const qtyInput = document.createElement('input');
+    qtyInput.type = 'number';
+    qtyInput.min = '0';
+    qtyInput.step = '1';
+    qtyInput.className = 'row-qty';
+    qtyInput.value = (item.qty !== undefined && item.qty !== null) ? item.qty : 1;
+
+    const priceInput = document.createElement('input');
+    priceInput.type = 'number';
+    priceInput.min = '0';
+    priceInput.step = '0.01';
+    priceInput.className = 'row-price';
+    priceInput.value = (item.pricePaid !== undefined && item.pricePaid !== null) ? item.pricePaid : '';
+
+    const removeBtn = document.createElement('button');
+    removeBtn.type = 'button';
+    removeBtn.className = 'row-remove';
+    removeBtn.innerHTML = '&times;';
+    removeBtn.addEventListener('click', function () { row.remove(); });
+
+    row.appendChild(nameInput);
+    row.appendChild(qtyInput);
+    row.appendChild(priceInput);
+    row.appendChild(removeBtn);
+    return row;
+  }
+
+  function renderConfirmRows(items) {
+    confirmRowsEl.innerHTML = '';
+    items.forEach(function (item) { confirmRowsEl.appendChild(makeRow(item)); });
+  }
+
+  addRowBtn.addEventListener('click', function () {
+    confirmRowsEl.appendChild(makeRow({ itemRaw: '', qty: 1, pricePaid: '', category: '' }));
+  });
+
+  function resolveCategory(itemName, fallback) {
+    const match = groceryItemsCache.find(function (g) {
+      return g.item && g.item.toLowerCase() === itemName.toLowerCase();
+    });
+    return match ? match.category : (fallback || '');
+  }
+
+  saveAllBtn.addEventListener('click', function () {
+    const rows = Array.from(confirmRowsEl.querySelectorAll('.confirm-row'));
+    const items = [];
+    rows.forEach(function (row) {
+      const name = row.querySelector('.row-name').value.trim();
+      if (!name) return;
+      const qty = parseFloat(row.querySelector('.row-qty').value);
+      const price = parseFloat(row.querySelector('.row-price').value);
+      items.push({
+        itemRaw: name,
+        itemCanonical: name,
+        qty: isNaN(qty) ? 1 : qty,
+        pricePaid: isNaN(price) ? 0 : price,
+        category: resolveCategory(name, row.dataset.category)
+      });
+    });
+    if (items.length === 0) {
+      errorMsgEl.textContent = 'Add at least one item before saving.';
+      showScannerView('error');
+      return;
+    }
+    saveAllBtn.disabled = true;
+    saveAllBtn.textContent = 'Saving…';
+    fetch(SHEETS_URL, {
+      method: 'POST',
+      body: JSON.stringify({
+        action: 'addReceipt',
+        secret: WEBHOOK_SECRET,
+        store: confirmStoreEl.value.trim(),
+        date: confirmDateEl.value,
+        receiptId: 'R' + Date.now(),
+        source: 'Receipt Photo',
+        items: items
+      })
+    }).then(function (r) { return r.json(); })
+      .then(function (data) {
+        saveAllBtn.disabled = false;
+        saveAllBtn.textContent = 'Save All';
+        if (!data || !data.ok) {
+          errorMsgEl.textContent = (data && data.error) ? data.error : 'Could not save receipt.';
+          showScannerView('error');
+          return;
+        }
+        successMsgEl.textContent = items.length + ' item' + (items.length === 1 ? '' : 's') + ' saved to your Purchases.';
+        showScannerView('success');
+        loadGroceryListOnce();
+      })
+      .catch(function () {
+        saveAllBtn.disabled = false;
+        saveAllBtn.textContent = 'Save All';
+        errorMsgEl.textContent = 'Network error — check your connection and try again.';
+        showScannerView('error');
+      });
+  });
+
+  retryBtn.addEventListener('click', function () { showScannerView('idle'); });
+  doneBtn.addEventListener('click', function () { showScannerView('idle'); });
+</script>
+
+</body>
+</html>
