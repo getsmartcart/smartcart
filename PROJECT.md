@@ -1,7 +1,7 @@
 # SmartCart — Personal Grocery Intelligence App
 
-**Project Status:** Planning complete, ready to build  
-**Last Updated:** June 3, 2026  
+**Project Status:** Phase 1 complete and verified end-to-end with real receipts  
+**Last Updated:** June 17, 2026  
 **Developer:** Paul — Kamloops, BC  
 **Platform:** PWA + Google Sheets + Apps Script + Claude API  
 **Account:** Claude Pro
@@ -99,10 +99,13 @@ Single workbook, 7 tabs. Schema locked 2026-06-17. One-time setup script: `2026-
 Lives in the same Apps Script project as the setup script ("SmartCart Setup"), as a second file: `2026-06-17-SmartCart-Backend.gs`. Deployed and verified 2026-06-17.
 
 - **Web App URL:** `https://script.google.com/macros/s/AKfycbyN69MiBxCf0KbSlJVbYFAqCdNSkIGfarEl_8DkyD_jjWa6Y1v7l6D6kFyMpBaDwSck/exec` — this is `SHEETS_URL` in the PWA front-end (URL stays identical across deployment versions).
-- **Deployment:** Version 2, deployed 17 Jun 2026, Execute as Me, Access Anyone. (Version 1 added the original `addReceipt`/GET actions; Version 2 added `scanReceipt`.)
+- **Deployment:** Version 3, deployed 18 Jun 2026, Execute as Me, Access Anyone. (Version 1 added the original `addReceipt`/GET actions; Version 2 added `scanReceipt`; Version 3 added `scanPackageLabel` + `updateReceipt`.)
 - **WEBHOOK_SECRET:** stored as a Script Property on the Apps Script project, also embedded client-side in `index.html` as a plain JS constant (anti-spam token, not cryptographic — same convention as Golf). Required in every POST payload; GET reads (`groceryList`, `categories`) are open, no secret required.
 - **scanReceipt (POST):** `{action:'scanReceipt', secret, imageBase64, mediaType}` → calls Claude Vision (`claude-sonnet-4-6`) server-side using `ANTHROPIC_API_KEY` (Script Property, never sent to the client) → returns `{ok:true, store, date, items:[{itemRaw, qty, pricePaid, category}]}`. Does not write to the Sheet — the PWA confirm screen calls `addReceipt` separately once Paul approves.
-- **Verified live:** `?action=categories` returns the 12-row taxonomy correctly; `?action=groceryList` returns `{ok:true, items:[]}` (correct — empty until first receipt scan). `scanReceipt` and `addReceipt` are wired end-to-end in the Scanner tab; not yet exercised with a real receipt photo by Paul.
+- **scanPackageLabel (POST):** `{action:'scanPackageLabel', secret, imageBase64, mediaType}` → calls Claude Vision server-side, same pattern as `scanReceipt` → returns `{ok:true, packageSize, pricePerKg}`. Minimal schema only (net weight + price/kg) — best-before date and PLU code from the original Roadmap item 4 wording were deferred, not built. Does not write to the Sheet.
+- **updateReceipt (POST):** `{action:'updateReceipt', secret, receiptId, itemRaw, packageSize, notesAppend}` → patches an already-saved Purchases row, matched by Receipt ID + Item (Raw) (case-insensitive). Returns `{ok:true, updated:true|false}`. General-purpose — used by the PWA's post-save completion flow, but works for any future single-cell correction by Receipt ID + item.
+- **Verified live:** `?action=categories` returns the 12-row taxonomy correctly; `?action=groceryList` returns `{ok:true, items:[]}` (correct — empty until first receipt scan). `scanReceipt` and `addReceipt` confirmed end-to-end on the hosted PWA 2026-06-17 (Session 7) with 3 real receipt photos — FreshCo, Save-On-Foods Brocklehurst, Safeway Pharmacy — all rows landed correctly in Purchases with right store/date/price/category.
+- **OAuth scope fix (2026-06-17, Session 7):** Live testing initially failed with `"No permission to call UrlFetchApp.fetch... script.external_request"`. Cause: the project's only interactive authorization predated `scanReceipt` (added Session 4), so the new scope it needs was never granted. Fixed by Paul re-running authorization (Review permissions → Allow) on the consent screen — the "Untitled project" label shown there is just Apps Script's default unconfigured Cloud-project branding, not a different app. Scope grants are tied to account + script project, not to a specific deployment, so no redeploy was needed — Version 2 picked up the grant immediately.
 
 ## PWA Shell
 
@@ -163,6 +166,34 @@ Health & Wellness covers Vitamins / Supplements / Prescriptions / OTC via a Subc
 - **Preferences:** typed directly into the sheet for now — no Settings UI yet.
 - **Reports / PriceHistory:** written automatically by Apps Script.
 - **Item-name matching:** confirm screen (autocomplete existing GroceryList items + "add new"), not fuzzy auto-match.
+
+---
+
+## Known Issues
+
+- ~~**"Save All" button not sticky**~~ — ✅ fixed 2026-06-18 (Session 9, v0.2.1). "Save All" moved into a new `.confirm-save-bar`, fixed above the footer (same pattern as header/tab-bar/footer), always visible regardless of receipt length. Confirm view gets matching bottom padding (`--save-bar-h`) so the bar never covers the last row.
+- **Weighed items sometimes have no Package Size** — some receipt formats print the weight breakdown for produce (e.g. "0.370 kg @ $2.84/kg") but not for meat/deli (FreshCo confirmed: chicken breast and beef sirloin tip both printed only a flat total, no weight). This is a receipt-format limitation, not a `scanReceipt` parsing miss — the data isn't on the receipt to extract. **Mitigated 2026-06-18 (Session 10):** post-save package-label-scan completion flow now prompts for any Proteins/Produce row missing Package Size. Known gap — Deli is only caught if its top-level Category is "Proteins"; the front-end doesn't track Subcategory, so a Deli row filed under a different top-level category won't trigger the prompt.
+- ~~**`Untitled.gs` temp file**~~ — ✅ deleted 2026-06-18 (Session 8). Was a throwaway `testExternalFetch` diagnostic file in the "SmartCart Setup" Apps Script project; removed via the Apps Script file menu, confirmed only `Code.gs` and `Backend.gs` remain.
+
+---
+
+## Roadmap — Unit Pricing, Editing & Intelligence (designed 2026-06-17, not yet built)
+
+Triggered by noticing FreshCo's receipt didn't print weight for meat items, and a broader discussion about comparing prices across stores when package sizes vary (shrinkflation: coffee has moved from ~454g/1lb → market-standard 375g, while Costco sells a "25% more" tin — a different size again).
+
+**Agreed build order:**
+
+1. ~~**Sticky Save All button**~~ ✅ done (Session 9, v0.2.1).
+2. ~~**Inline missing-data completion flow**~~ ✅ done (Session 10, v0.3.0) — right after Save All, any saved Proteins/Produce row missing Package Size triggers a one-at-a-time scan prompt (camera + Skip per item), looping through flagged items and merging results into the just-saved rows via `updateReceipt`. Known gap: Deli items are only caught when filed under top-level Category "Proteins" — see Known Issues.
+3. ~~**`updateReceipt` Apps Script endpoint**~~ ✅ done (Session 10) — general-purpose patch by Receipt ID + item, live as part of Web App Version 3. Used by #2's completion flow; also callable independently for future corrections.
+4. **Package-label Vision parse schema** — ✅ done in minimal form (Session 10): net weight + price/kg only. Best-before/freeze-by date and PLU code were in the original wording but were explicitly deferred, not built — flagged here since Paul hadn't confirmed full vs. minimal scope before this session closed; revisit if the freezable-stockpile feature (see #4 original note) becomes a priority.
+5. **`Default Unit` pre-fill** — GroceryList already has an empty `Default Unit` column built for this. Once set for an item with a known stable size (e.g. Creamo = 2L), the app pre-fills Package Size instead of prompting every time — but surfaces a quick one-tap "still 2L?" rather than silently auto-filling, so a genuine size change (like Costco's bigger coffee tin) gets caught instead of mis-recorded.
+6. **Unit Price calculation + cross-store comparison** — once Package Size is reliably populated, Unit Price (price per 100g/100ml) can be computed at `addReceipt` time. This is what actually answers "is Costco's bigger tin cheaper than the regular store's bag" — direct $/100g comparison regardless of container size.
+7. **Rolling-average price alert** — deterministic, no AI: compare a new purchase's unit price for an item against its own historical average, flag if notably above ("you paid more than usual for X").
+8. **Cross-store trend check** — deterministic: compare recent unit prices for the same item/category across all tracked stores, to tell "this store raised its price" apart from "the whole market moved."
+9. **FSRI narrative tie-in** — the one genuinely AI-reasoned step: feed the user's own price-trend numbers (from #7/#8) plus the relevant FSRI report excerpt to Claude, and have it produce the one-line verdict ("coincides with" / "conflicts with" the FSRI signal). Depends on #7/#8 existing first.
+
+**Separately decided:** no standalone desktop app for querying purchase history — stays inside the existing PWA, since the Sheet + Apps Script backend is already the single source of truth. Structured questions ("lowest price for Creamo") get a simple read endpoint + client-side filter; fuzzy/natural-language questions ("best coffee deal this week") get routed through the existing Claude API call over the relevant rows — no need to wait for #6 to answer the fuzzy case, Claude can eyeball package sizes in raw item text directly.
 
 ---
 
@@ -248,7 +279,7 @@ HEADS UP
 | Receipt scanning | Claude Vision (photo → structured JSON → Sheets) |
 | Flyer/price queries | Claude API with web search — targets store websites directly (more reliable than general search) |
 | Email delivery | Apps Script MailApp — HTML template, same pattern as FSRI |
-| Hosting | GitHub Pages |
+| Hosting | GitHub Pages — live at `https://getsmartcart.github.io/smartcart/` (org `getsmartcart`, repo `smartcart`, public, deployed from `main` branch root) |
 | Nutrition data (Phase 4) | Open Food Facts API (free, Canadian products) + USDA FoodData Central as fallback |
 
 ### Price Data Sources — Fluid
@@ -280,7 +311,7 @@ No source is hardcoded. Claude's web search prompt will be updated to include ne
 
 Upload this file at the start of each session. If an `index.html` exists, upload that too. State which phase you're working on and Claude will resume without re-litigating prior decisions.
 
-**Current status:** Phase 1 complete — Google Sheets schema, Apps Script backend (Web App Version 2, `scanReceipt` + `addReceipt`), and PWA shell with a fully built Receipt Scanner tab, all live — `index.html` v0.2.0. Verified visually via Finder→Safari; end-to-end scan→save with a real receipt photo not yet exercised by Paul. **Confirmed 2026-06-17: real-device testing needs GitHub Pages hosting first** — `file://` (e.g. AirDrop) blocks CORS to the backend and a real iOS "Add to Home Screen" install; `index.html` needs no code changes for this, just a host. Queued in `TODO_LIST.md`. Next: GitHub Pages setup → real-photo Scanner test → Phase 2 (Thursday flyer report).
+**Current status:** Phase 1 complete and verified end-to-end with real receipts — Google Sheets schema, Apps Script backend (Web App Version 3, `scanReceipt` + `addReceipt` + `scanPackageLabel` + `updateReceipt`), and PWA shell with a fully built Receipt Scanner tab including the post-save completion flow, all built — `index.html` v0.3.0, **built locally but NOT yet pushed to GitHub** (live site still shows v0.2.1 until Paul pushes — see git commands in JOURNAL.md Session 10 entry). **2026-06-17 (Session 7):** fixed a missing OAuth scope (`script.external_request`) that was blocking `scanReceipt`; re-tested live with 3 real receipt photos, all confirmed correctly saved to Sheets. Designed (not yet built) a Roadmap for unit-pricing accuracy, an item-completion/edit flow, and phased price-intelligence alerts — see "Roadmap" section above. **2026-06-18 (Session 8):** deleted temp `Untitled.gs`. **2026-06-18 (Session 9):** fixed the non-sticky Save All button (CSS-only, fixed bar above footer) — v0.2.1, visually verified, pushed to GitHub. **2026-06-18 (Session 10):** built Roadmap items 2–4 — Apps Script Version 3 deployed (`scanPackageLabel` + `updateReceipt`), inline package-label-scan completion flow built in `index.html` (sequential queue, Scan + Skip per item), structural + static visual verification passed — v0.3.0, not yet pushed. Next: Paul pushes to GitHub; then Roadmap item 5 (`Default Unit` pre-fill).
 
 ---
 
@@ -297,6 +328,7 @@ Upload this file at the start of each session. If an `index.html` exists, upload
 - **PWA visual theme:** Distinct SmartCart-specific theme — NOT a reuse of Golf's green/cream shared.css. Teal/coral palette (see PWA Shell section below). Decided 2026-06-17.
 - **Tab navigation position:** Top tab bar, below the fixed header (not bottom). Decided 2026-06-17.
 - **Scanner confirm-screen autocomplete:** Native HTML `<datalist>` against GroceryList items (not a custom dropdown widget) — matches the locked "autocomplete + add new" requirement with zero layout-shift risk (no custom-positioned popup to manage). Decided 2026-06-17.
+- **No standalone desktop app for querying/insights:** stays inside the existing PWA — Sheets + Apps Script is already the single source of truth, a second app would just duplicate auth/sync for no benefit. Decided 2026-06-17 (Session 7).
 
 ---
 

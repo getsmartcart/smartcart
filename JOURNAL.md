@@ -165,3 +165,169 @@ Phase 1 code unchanged and complete. Confirmed blocker: real-device testing (Sca
 ### Queued for next session
 - Set up GitHub repo + Pages for SmartCart (mirror Golf/Minder), then resume the real-photo end-to-end Scanner test.
 - Begin Phase 2 once hosting/testing is done.
+
+---
+
+## 2026-06-17 — Session 6 (GitHub Hosting — Local Repo Initialized)
+
+### What was done
+- Paul chose hosting target: new dedicated org `getsmartcart` (mirrors `getminder`/`getdailydose` pattern, keeps it off personal profile), repo `smartcart`, public visibility (required for free Pages on a non-Pro org).
+- Checked project files for hardcoded secrets before any public push — none found. `WEBHOOK_SECRET` and `ANTHROPIC_API_KEY` are Script Properties only, never written into the `.gs` files; the client-embedded `WEBHOOK_SECRET` constant in `index.html` is the same non-cryptographic anti-spam pattern already established and accepted on Golf.
+- Initialized local git repo in `Projects/SmartCart/` (Claude cannot create GitHub orgs/repos or push — account/org creation and the actual push are Paul's steps, per Studio convention).
+- Added `.gitignore` (`.DS_Store`, `PROJECT.pdf`), committed all 5 tracked files (`index.html`, `PROJECT.md`, `JOURNAL.md`, both `.gs` files) as the initial commit.
+- Note: branch is `master`, not `main` — a `git branch -m` rename failed in the Cowork sandbox (mounted-filesystem lock-file permission quirk, stray `.lock` files left behind but repo integrity unaffected). Left for Paul to rename in his own Terminal if desired; functionally doesn't block Pages.
+
+### Files changed
+- `Projects/SmartCart/.git/` — new local repo, 1 commit.
+- `Projects/SmartCart/.gitignore` — new.
+- `Projects/SmartCart/JOURNAL.md` — this entry.
+
+### Current status
+Local repo ready to push. Waiting on Paul: create `getsmartcart` org + `smartcart` repo on GitHub (no auto-init README), then run the provided Terminal commands to push and enable Pages.
+
+### Queued for next session
+- Confirm push succeeded and `https://getsmartcart.github.io/smartcart/` is live.
+- Resume real-photo Scanner end-to-end test on a phone via the hosted URL.
+- Begin Phase 2 (Thursday flyer report) once hosting/testing confirmed.
+
+---
+
+## 2026-06-17 — Session 6 continued (Hosting Live)
+
+### What was done
+- Org `getsmartcart` and public repo `smartcart` created by Paul on GitHub (no README, matching the local repo cleanly).
+- Push hit two snags along the way, both resolved: (1) a branch-rename attempted from inside the Cowork sandbox left stray `.lock` files in the real `.git` directory — Paul removed them from his own Terminal where permissions weren't an issue; (2) first push attempts failed with "Repository not found" because the org existed but the `smartcart` repo inside it didn't yet (same failure mode Minder hit on its first deploy) — confirmed by checking the org/repo pages directly via browser rather than taking "should be done" at face value. Once the repo was actually created, `git push -u origin main` succeeded (8 objects, new branch `main`).
+- Enabled GitHub Pages via Settings → Pages → Deploy from a branch → `main` / `/(root)` → Save (done directly via browser automation with Paul's go-ahead).
+- Verified live: `https://getsmartcart.github.io/smartcart/` renders correctly — teal/coral theme, fixed header + top tab bar, Scanner tab active by default, footer reads "SmartCart v0.2.0 — Receipt Scanner", no layout shift.
+
+### Files changed
+- `Projects/SmartCart/JOURNAL.md` — this entry.
+- `~/Documents/Studio/TODO_LIST.md` — hosting one-off marked resolved, Active Project Resume note updated.
+
+### Current status
+**Hosting complete.** SmartCart is live at `https://getsmartcart.github.io/smartcart/` — HTTPS origin, so `fetch()` calls to the Apps Script backend are no longer blocked by CORS, and iOS "Add to Home Screen" should now produce a real standalone install. Code itself unchanged (still v0.2.0).
+
+### Queued for next session
+- Paul: open the live URL on a phone, add to home screen, run a real receipt photo through Scan → Confirm → Save end-to-end.
+- Begin Phase 2 (Apps Script Thursday trigger, flyer web-search query, email report) once the real-photo test is confirmed clean.
+
+---
+
+## 2026-06-17 — Session 7 (OAuth Scope Fixed, Real-Photo Test Verified, Unit-Pricing Roadmap Designed)
+
+### What was done
+- **Diagnosed and fixed the live blocker:** Paul ran a real receipt through the hosted Scanner and hit `"No permission to call UrlFetchApp.fetch. Required: script.external_request"`. Root cause: the project's only interactive OAuth authorization happened before `scanReceipt` (which needs that scope) was added in Session 4 — no later run/redeploy ever triggered a fresh consent prompt to add it.
+- Isolated the diagnosis in a brand-new `Untitled.gs` file inside the "SmartCart Setup" Apps Script project (a one-line `testExternalFetch()` calling `UrlFetchApp.fetch`) rather than risk editing live `Backend.gs` — reproduced the exact error, confirming the scope gap definitively. **This temp file is still in the project and needs deleting next session.**
+- Incident along the way: a `cmd+End` no-op in the Monaco-based Apps Script editor caused a typed test function to land inside `Backend.gs`'s top comment block instead of at file-end. Caught immediately, reverted with 15× undo, verified line-for-line against the original, saved — no net change to `Backend.gs`.
+- Paul ran the interactive authorization (Claude does not click OAuth consent screens — established convention, held again here). He flagged the consent screen showing "Untitled project" as a name mismatch concern; confirmed via screenshot this is just Apps Script's default unconfigured Cloud-project branding (developer email shown was his own account, only scope requested was the exact one needed) — not a different or unexpected app. Paul completed Allow.
+- **Re-tested live and verified via direct Sheet read (Google Drive connector):** 3 real receipts saved correctly — FreshCo (9 items, $44.18, incl. bagels/yogurt/onions/cream cheese/jalapeños/chicken breast/sirloin tip/grapes×2), Save-On-Foods Brocklehurst (Dairyland Creamo + Mr. Noodles ×3, $6.86), Safeway Pharmacy (Inspiolto Respimat, $25.06). Correct store/date/price/category on every row, GroceryList/Item-Master auto-populated. **Scope fix confirmed working end-to-end — Phase 1 is now fully exercised with real photos, not just structurally verified.**
+- **UX gap identified:** Paul wasn't sure what to expect after scanning — the confirm screen's "Save All" button does exist (right below the item list) but isn't sticky, so on a longer receipt (9 items) it likely sat below the fold and read as "no save button." Flagged for a fix: make Save All sticky/always-visible regardless of list length.
+- **Data gap identified:** FreshCo's receipt printed weight breakdowns for produce (e.g. "0.370 kg @ $2.84/kg") but not for chicken breast or beef sirloin tip — a receipt-format limitation, not a scan-parse miss. Paul photographed the actual chicken package label (0.542 kg @ $17.61/kg = $9.54, matching the receipt total exactly) to confirm the data exists, just not on the receipt.
+- **Extended design discussion — unit pricing, package size, and "intelligence" roadmap** (decisions below feed PROJECT.md's new Roadmap section; nothing built yet):
+  - No Sheets schema change needed — `Package Size` and `Unit Price` columns already exist in Purchases, just unpopulated. Fix belongs in the scan/add pipeline, not the schema.
+  - Plan: add an `updateReceipt` Apps Script endpoint (patch by Receipt ID + item) for general corrections, *and* an inline completion step — right after Save All, prompt to scan the package label for any weighed-category item missing Package Size, merging into the same save before it completes (one save, not save-then-edit).
+  - Package-label scans need their own Vision parse schema: net weight, price/kg, best-before/freeze-by date, PLU. Best-before date isn't tracked anywhere today — worth capturing for a future "use this before it spoils" / freezable-stockpile feature.
+  - GroceryList's existing (already-built, empty) `Default Unit` column is the right mechanism for items with a stable size (e.g. Creamo always 2L) — pre-fill instead of re-prompting, but surface a one-tap "still 2L?" rather than silently auto-filling, since some items (coffee) have multiple active SKUs (Costco's 25%-more tin vs. the market-standard 375g bag, itself a shrink from the older 454g/1lb size).
+  - Cross-store, cross-size comparisons (e.g. "is Costco's bigger tin actually cheaper") resolve automatically once Unit Price (price per 100g/100ml) is computed per purchase — no separate logic needed beyond having that field populated.
+  - Alerts/"intelligence" roadmap, staged: (1) deterministic — compare a new purchase's unit price against that item's own rolling average, flag if above; (2) deterministic — compare across stores for the same item/category to separate single-store vs. market-wide moves; (3) Claude-reasoned — write a one-line narrative tying the user's own trend to relevant FSRI report findings ("coincides with / conflicts with"). (3) depends on (1)/(2) producing clean data first.
+  - Agreed build order: sticky Save button + inline label-scan completion flow → Default Unit pre-fill → Unit Price calc + cross-store comparison → rolling-average alert → FSRI narrative tie-in.
+  - Separately decided: no standalone desktop app for querying/insights — stays inside the existing PWA. Structured questions ("lowest price for Creamo") get a simple read endpoint + client-side filter; fuzzy/natural-language questions ("best coffee deal this week") get routed through the existing Claude API call over the relevant rows.
+
+### Files changed
+- `Projects/SmartCart/JOURNAL.md` — this entry.
+- `Projects/SmartCart/PROJECT.md` — Apps Script Backend section updated (OAuth scope fix logged, real-photo verification confirmed); new "Known Issues" section; new "Roadmap — Unit Pricing, Editing & Intelligence" section capturing all decisions above; Current status / Session Restore Instructions updated.
+- `~/Documents/Studio/TODO_LIST.md` — SmartCart resume cue updated.
+- No code shipped this session — `index.html` and `Backend.gs` unchanged, still v0.2.0 / Version 2.
+
+### Current status
+Phase 1 is now fully verified end-to-end with real receipt photos, OAuth scope issue resolved. A clear, agreed roadmap exists for unit-pricing accuracy, an edit/completion flow, and a phased price-intelligence/alerts feature — none of it built yet.
+
+### Queued for next session
+- Delete the temporary `Untitled.gs` test file from the "SmartCart Setup" Apps Script project.
+- Make "Save All" sticky on the confirm screen (quick UX fix).
+- Start the Roadmap build order: inline package-label-scan completion flow + `updateReceipt` endpoint first.
+- Begin Phase 2 (Thursday flyer report) once roadmap items are triaged against priority.
+
+---
+
+## 2026-06-18 — Session 8 (Temp File Cleanup)
+
+### What was done
+- Deleted the `Untitled.gs` temp diagnostic file (`testExternalFetch`) from the "SmartCart Setup" Apps Script project via browser automation (Extensions > Apps Script > file menu > Delete > confirm). Confirmed only `Code.gs` and `Backend.gs` remain in the project.
+
+### Files changed
+- Apps Script project "SmartCart Setup" — `Untitled.gs` removed (cloud-side, not a local repo file).
+- `Projects/SmartCart/PROJECT.md` — Known Issues item marked resolved; Current status updated.
+- `Projects/SmartCart/JOURNAL.md` — this entry.
+
+### Current status
+Cleanup item closed. Next up: sticky "Save All" button, then Roadmap build order.
+
+### Queued for next session
+- Make "Save All" sticky on the confirm screen.
+- Start the Roadmap build order: inline package-label-scan completion flow + `updateReceipt` endpoint first.
+
+---
+
+## 2026-06-18 — Session 9 (Sticky Save All)
+
+### What was done
+- Fixed the non-sticky "Save All" button (Known Issues item from Session 7). CSS-only change, no JS logic touched:
+  - Added `--save-bar-h: 80px` CSS variable.
+  - Split the Save All button out of the main `.scanner-view[data-view="confirm"]` block into its own sibling `<div class="confirm-save-bar scanner-view" data-view="confirm">`, fixed-positioned above the footer (`position:fixed; bottom:var(--footer-h)`) — same pattern already used by `.app-header`/`.tab-bar`/`.app-footer`.
+  - Added matching `padding-bottom: var(--save-bar-h)` to the confirm view so the new fixed bar never covers the last item row.
+  - This works because `showScannerView(name)` already toggles `.active` on *every* `.scanner-view`-classed element matching `data-view`, not just one — so the new sibling bar is shown/hidden in sync automatically.
+- Bumped version: footer now reads `SmartCart v0.2.1 — Sticky Save`.
+- Verified structurally first (balanced `<div>` tags, no duplicate IDs, `node --check` on the inline script all clean).
+- Verified visually: confirmed `file://` URLs can't be opened via Claude-in-Chrome's `navigate` (it force-prepends `https://`) and that opening the file directly in Chrome from Finder also fails the same way (extension still rewrites the URL, page loads as `chrome-error://chromewebdata`) — both are platform limitations, not app bugs. Worked around it by opening `index.html` in Safari via Finder (read-only screenshot tier) and separately building a throwaway test copy (`_test-confirm.html`, deleted after) that auto-populated 12 dummy rows and called `showScannerView('confirm')` on load. Screenshot confirmed the Save All bar renders as a clean fixed bar sitting above the footer with no overlap or clipping.
+
+### Files changed
+- `Projects/SmartCart/index.html` — CSS variable, two new CSS rules, confirm-view markup split, footer version bump (v0.2.0 → v0.2.1).
+- `Projects/SmartCart/PROJECT.md` — Known Issues item marked resolved.
+- `Projects/SmartCart/JOURNAL.md` — this entry.
+- `~/Documents/Studio/TODO_LIST.md` — SmartCart resume cue updated.
+- Temp file `_test-confirm.html` created and deleted within this session — not part of the repo.
+
+### Current status
+Both Known Issues from Session 7 (`Untitled.gs` temp file, non-sticky Save All) are now resolved. Receipt Scanner is fully built and stable at v0.2.1. Paul pushed to GitHub — live at `https://getsmartcart.github.io/smartcart/`.
+
+### Queued for next session
+- Start the Roadmap build order: inline package-label-scan completion flow + `updateReceipt` endpoint first.
+- Remaining open Known Issue: weighed items sometimes have no Package Size (data gap, not a bug — see Roadmap).
+
+---
+
+## 2026-06-18 — Session 10 (Package-Label Completion Flow + updateReceipt)
+
+### What was done
+- Verified the live "SmartCart Setup" Apps Script source matched the local `Backend.gs` before changing anything.
+- Added two new POST actions to `Backend.gs`: `scanPackageLabel` (Claude Vision call on a package-label photo, minimal schema — returns `packageSize` + `pricePerKg` only; best-before date and PLU code from the original Roadmap item 4 wording were deliberately left out, not built) and `updateReceipt` (general-purpose patch of an already-saved Purchases row, matched by Receipt ID + Item Raw, case-insensitive).
+- Deployed as Web App **Version 3** (Deploy > Manage deployments > edit existing deployment > new version) — confirmed the Web App URL stayed identical to the one hardcoded in `index.html`'s `SHEETS_URL`, so no front-end URL change was needed.
+- Built the inline completion flow in `index.html`:
+  - New `package-scan` scanner-view block (placeholder card, progress text, item name, Scan + Skip buttons, hidden file input with `capture="environment"`).
+  - `packageQueue` / `packageQueueIndex` / `advancePackageQueue()` — sequential one-item-at-a-time queue, per Paul's confirmed design (Skip button for anything that can't be categorized).
+  - Trigger condition: after Save All, filter the just-saved items down to category `proteins` or `produce` (case-insensitive) — the front-end has no Subcategory field, so "Deli" from the Roadmap wording can only be caught when its top-level Category is "Proteins". Flagging this as a known scope limitation, not a bug.
+  - Hoisted `receiptId` generation out of the inline `addReceipt` payload into a `currentReceiptId` module-level variable so the completion flow's `updateReceipt` calls can reference it.
+  - `doneBtn` resets `packageQueue`/`packageQueueIndex`/`currentReceiptId` before returning to idle.
+  - Bumped footer to `SmartCart v0.3.0 — Package Label Scan`.
+- **Open question not resolved by Paul:** before this session closed, Paul was asked (Q2) whether the package-label Vision schema should be minimal (net weight + price/kg) or full (add best-before date + PLU code). No answer came back before compaction, so the minimal schema — already the Recommended option — was the one built and deployed. Flagging this explicitly so Paul can confirm or ask for the fuller schema later; nothing was assumed silently.
+- Verified structurally: balanced `<div>` tags, no duplicate IDs, `node --check` clean on the inline script, `data-view` attributes in correct document order.
+- Verified visually: built a disposable `_preview_tmp.html` copy with the `package-scan` view force-activated and placeholder text injected, opened via Finder → Safari (read-tier, screenshot only), confirmed card/button styling and footer version text rendered correctly. Safari's own fullscreen toolbar appeared to overlap the app's fixed header/tab-bar in the screenshot — assessed as a Safari rendering artifact, not a regression (no header/tab-bar code was touched this session, and a prior session already verified that markup independently). Deleted the temp file afterward (required `mcp__cowork__allow_cowork_file_delete` once, since direct `rm` was blocked with "Operation not permitted").
+- Deliberately left `handleScanReceipt_` (the original receipt-parsing function) untouched — no packageSize extraction added there — to avoid regression risk on a function that's already working in production.
+
+### Files changed
+- `Projects/SmartCart/2026-06-17-SmartCart-Backend.gs` — added `handleScanPackageLabel_` and `handleUpdateReceipt_` plus their `doPost` dispatch branches.
+- `Projects/SmartCart/index.html` — new `package-scan` view, completion-flow JS, `receiptId` hoisting, footer version bump (v0.2.1 → v0.3.0).
+- `Projects/SmartCart/PROJECT.md` — Apps Script Backend section (Version 3, new endpoints documented), Known Issues (package-size mitigation note + Deli scoping caveat), Roadmap items 2–4 marked done, Session Restore Instructions updated.
+- `Projects/SmartCart/JOURNAL.md` — this entry.
+- Live Apps Script project "SmartCart Setup" — redeployed as Version 3.
+- Temp file `_preview_tmp.html` created and deleted within this session — not part of the repo.
+
+### Current status
+Roadmap items 1–3 done, item 4 done in minimal form. `index.html` is at v0.3.0 locally but **not yet pushed to GitHub** — the live site at `https://getsmartcart.github.io/smartcart/` still serves v0.2.1 until Paul pushes. Apps Script Version 3 is live regardless (backend deploys independently of GitHub Pages).
+
+### Queued for next session
+- Paul to push `index.html` (and the updated `.gs` file, for repo consistency) to GitHub — exact commands provided in chat.
+- Confirm with Paul whether the minimal package-label schema (Q2) is final, or whether best-before/PLU should be added later.
+- Real end-to-end test of the completion flow with an actual phone camera + live Vision call (not yet possible to verify via automated tooling).
+- Next Roadmap item: `Default Unit` pre-fill (item 5).

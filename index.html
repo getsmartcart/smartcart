@@ -352,7 +352,7 @@
       <div class="scanner-view" data-view="loading">
         <div class="placeholder-card">
           <div class="spinner"></div>
-          <p>Reading your receipt…</p>
+          <p id="loading-msg">Reading your receipt…</p>
         </div>
       </div>
 
@@ -366,6 +366,18 @@
       </div>
       <div class="confirm-save-bar scanner-view" data-view="confirm">
         <button id="confirm-save" type="button" class="btn-primary">Save All</button>
+      </div>
+
+      <div class="scanner-view" data-view="package-scan">
+        <div class="placeholder-card">
+          <h2>Scan Package Label</h2>
+          <p class="scanner-error-msg" id="package-scan-progress"></p>
+          <p class="scanner-error-msg" id="package-scan-item"></p>
+          <p class="scanner-error-msg" id="package-scan-error" style="display:none;"></p>
+          <button id="package-scan-btn" type="button" class="btn-primary">Scan Label</button>
+          <button id="package-scan-skip" type="button" class="btn-secondary">Skip</button>
+          <input type="file" id="package-scan-input" accept="image/*" capture="environment" style="display:none">
+        </div>
       </div>
 
       <div class="scanner-view" data-view="error">
@@ -414,7 +426,7 @@
 
   </main>
 
-  <footer class="app-footer">SmartCart v0.2.1 — Sticky Save</footer>
+  <footer class="app-footer">SmartCart v0.3.0 — Package Label Scan</footer>
 
 </div>
 
@@ -453,8 +465,92 @@
   const addRowBtn = document.getElementById('confirm-add-row');
   const saveAllBtn = document.getElementById('confirm-save');
   const groceryDatalist = document.getElementById('grocery-items');
+  const loadingMsgEl = document.getElementById('loading-msg');
+  const packageScanBtn = document.getElementById('package-scan-btn');
+  const packageScanSkipBtn = document.getElementById('package-scan-skip');
+  const packageScanInput = document.getElementById('package-scan-input');
+  const packageScanProgressEl = document.getElementById('package-scan-progress');
+  const packageScanItemEl = document.getElementById('package-scan-item');
+  const packageScanErrorEl = document.getElementById('package-scan-error');
 
   let groceryItemsCache = [];
+  let currentReceiptId = null;
+  let packageQueue = [];
+  let packageQueueIndex = 0;
+
+  // Categories whose rows commonly lack a printed Package Size (weighed
+  // meat/deli/produce) — these trigger the post-save package-label scan.
+  // See PROJECT.md Roadmap item 2.
+  const PACKAGE_SCAN_CATEGORIES = ['proteins', 'produce'];
+
+  function advancePackageQueue() {
+    packageScanErrorEl.style.display = 'none';
+    packageScanErrorEl.textContent = '';
+    if (packageQueueIndex >= packageQueue.length) {
+      showScannerView('success');
+      return;
+    }
+    const total = packageQueue.length;
+    packageScanProgressEl.textContent = 'Item ' + (packageQueueIndex + 1) + ' of ' + total;
+    packageScanItemEl.textContent = packageQueue[packageQueueIndex].itemRaw;
+    showScannerView('package-scan');
+  }
+
+  packageScanBtn.addEventListener('click', function () { packageScanInput.click(); });
+
+  packageScanSkipBtn.addEventListener('click', function () {
+    packageQueueIndex++;
+    advancePackageQueue();
+  });
+
+  packageScanInput.addEventListener('change', function () {
+    const file = packageScanInput.files[0];
+    if (!file) return;
+    const currentItem = packageQueue[packageQueueIndex];
+    loadingMsgEl.textContent = 'Reading package label…';
+    showScannerView('loading');
+    fileToBase64(file).then(function (base64) {
+      return fetch(SHEETS_URL, {
+        method: 'POST',
+        body: JSON.stringify({
+          action: 'scanPackageLabel',
+          secret: WEBHOOK_SECRET,
+          imageBase64: base64,
+          mediaType: file.type || 'image/jpeg'
+        })
+      });
+    }).then(function (r) { return r.json(); })
+      .then(function (data) {
+        packageScanInput.value = '';
+        loadingMsgEl.textContent = 'Reading your receipt…';
+        if (!data || !data.ok || !data.packageSize) {
+          packageScanErrorEl.textContent = (data && data.error) ? data.error : "Couldn't read that label — try again or skip.";
+          packageScanErrorEl.style.display = 'block';
+          showScannerView('package-scan');
+          return;
+        }
+        return fetch(SHEETS_URL, {
+          method: 'POST',
+          body: JSON.stringify({
+            action: 'updateReceipt',
+            secret: WEBHOOK_SECRET,
+            receiptId: currentReceiptId,
+            itemRaw: currentItem.itemRaw,
+            packageSize: data.packageSize
+          })
+        }).then(function () {
+          packageQueueIndex++;
+          advancePackageQueue();
+        });
+      })
+      .catch(function () {
+        packageScanInput.value = '';
+        loadingMsgEl.textContent = 'Reading your receipt…';
+        packageScanErrorEl.textContent = 'Network error — try again or skip.';
+        packageScanErrorEl.style.display = 'block';
+        showScannerView('package-scan');
+      });
+  });
 
   function loadGroceryListOnce() {
     fetch(SHEETS_URL + '?action=groceryList')
@@ -600,6 +696,7 @@
     }
     saveAllBtn.disabled = true;
     saveAllBtn.textContent = 'Saving…';
+    const receiptId = 'R' + Date.now();
     fetch(SHEETS_URL, {
       method: 'POST',
       body: JSON.stringify({
@@ -607,7 +704,7 @@
         secret: WEBHOOK_SECRET,
         store: confirmStoreEl.value.trim(),
         date: confirmDateEl.value,
-        receiptId: 'R' + Date.now(),
+        receiptId: receiptId,
         source: 'Receipt Photo',
         items: items
       })
@@ -620,9 +717,14 @@
           showScannerView('error');
           return;
         }
+        currentReceiptId = receiptId;
         successMsgEl.textContent = items.length + ' item' + (items.length === 1 ? '' : 's') + ' saved to your Purchases.';
-        showScannerView('success');
         loadGroceryListOnce();
+        packageQueue = items.filter(function (it) {
+          return PACKAGE_SCAN_CATEGORIES.indexOf((it.category || '').trim().toLowerCase()) !== -1;
+        });
+        packageQueueIndex = 0;
+        advancePackageQueue();
       })
       .catch(function () {
         saveAllBtn.disabled = false;
@@ -633,7 +735,12 @@
   });
 
   retryBtn.addEventListener('click', function () { showScannerView('idle'); });
-  doneBtn.addEventListener('click', function () { showScannerView('idle'); });
+  doneBtn.addEventListener('click', function () {
+    packageQueue = [];
+    packageQueueIndex = 0;
+    currentReceiptId = null;
+    showScannerView('idle');
+  });
 </script>
 
 </body>
