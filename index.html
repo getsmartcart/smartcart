@@ -36,6 +36,7 @@
     --tabbar-h: 48px;
     --footer-h: 26px;
     --shell-max: 420px;
+    --save-bar-h: 80px;
   }
 
   * { box-sizing: border-box; }
@@ -287,6 +288,32 @@
     padding: 0;
   }
 
+  /* Confirm screen reserves space at the bottom so the sticky Save bar
+     never covers the last row, regardless of receipt length. */
+  .scanner-view[data-view="confirm"] {
+    padding-bottom: var(--save-bar-h);
+  }
+
+  /* Sticky Save All bar — pinned above the footer, same fixed-chrome
+     pattern as header/tab-bar/footer, so it's always reachable without
+     scrolling on long receipts. */
+  .confirm-save-bar {
+    position: fixed;
+    left: 50%;
+    bottom: var(--footer-h);
+    width: 100%;
+    max-width: var(--shell-max);
+    transform: translateX(-50%);
+    z-index: 100;
+    background: var(--card);
+    border-top: 1px solid var(--border);
+    padding: 12px 16px;
+  }
+
+  .confirm-save-bar .btn-primary {
+    margin-top: 0;
+  }
+
   .scanner-error-msg, .scanner-success-msg {
     font-size: var(--fs-body);
     color: var(--text-secondary);
@@ -336,6 +363,8 @@
         </div>
         <div class="confirm-list" id="confirm-rows"></div>
         <button id="confirm-add-row" type="button" class="btn-secondary">+ Add item</button>
+      </div>
+      <div class="confirm-save-bar scanner-view" data-view="confirm">
         <button id="confirm-save" type="button" class="btn-primary">Save All</button>
       </div>
 
@@ -385,7 +414,7 @@
 
   </main>
 
-  <footer class="app-footer">SmartCart v0.2.0 — Receipt Scanner</footer>
+  <footer class="app-footer">SmartCart v0.2.1 — Sticky Save</footer>
 
 </div>
 
