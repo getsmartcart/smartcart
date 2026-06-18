@@ -331,3 +331,39 @@ Roadmap items 1–3 done, item 4 done in minimal form. `index.html` is at v0.3.0
 - Confirm with Paul whether the minimal package-label schema (Q2) is final, or whether best-before/PLU should be added later.
 - Real end-to-end test of the completion flow with an actual phone camera + live Vision call (not yet possible to verify via automated tooling).
 - Next Roadmap item: `Default Unit` pre-fill (item 5).
+
+---
+
+## 2026-06-18 — Session 11 (Live Secret Exposure Found + Rotated)
+
+### What was done
+- Paul asked, as a live test of Phase 3 price-search viability, to check 5 grocery chains' coffee prices via web search — surfaced that pure search only found usable pricing at 3 of 5 stores, confirming a flyer/scraper API is needed for real price intelligence (not yet built — informational only this session).
+- Researched the grocery-price API landscape: Flipp has no public/self-serve API (enterprise partnership only), Instacart's API is partner-gated, Reebee has no public API. Identified Apify as a third-party scraper marketplace (not itself a "No Frills scraper" — clarified these are distinct: Apify is the platform, individual Actors like `sunny_eternity/loblaws-grocery-scraper` are independently built listings on it).
+- Confirmed `sunny_eternity/loblaws-grocery-scraper` is **not** open source (no "Source code" tab on its Apify listing) — proprietary, pay-per-use. Read its one existing review (Rick_Segal, 5/5, noted a No Frills URL-format friction point; developer replied with a fix) as a maintenance-quality signal. Also surfaced the same developer's broader `canada-grocery-price-comparison` Actor (Loblaws/Superstore/No Frills/Save-On-Foods/PriceSmart/T&T in one input) and a separate `gratifying_graph/canada-grocery-deals` flyer-by-postal-code Actor (Loblaws/Metro/Sobeys/IGA/Walmart/Super C/Maxi) as candidates worth a closer look later.
+- Checked GitHub Traffic Insights for `getsmartcart/smartcart` at Paul's request: 7 clones / 7 unique cloners and 4 views / 1 unique visitor over the rolling 14-day window — higher than expected for a personal repo. GitHub's traffic UI does not expose cloner/viewer identity (no usernames, no IPs), only aggregate counts.
+- Paul declined checking the repo's collaborator list, but asked the sharper question: how much could a cloner actually reconstruct, given they wouldn't have access to the real Google Sheets data? Investigated by reading the actual tracked files (`git ls-files`) rather than assuming — found the public repo contains not just `index.html` but **both `.gs` backend source files** (`2026-06-17-SmartCart-Backend.gs`, `2026-06-17-SmartCart-SheetSetup.gs`). Grepped `index.html` and confirmed `SHEETS_URL` and `WEBHOOK_SECRET` are hardcoded **live, working values** — not placeholders — visible to anyone via clone or simply "view source" on the hosted page.
+- Assessed the real risk: the app's UI/backend logic has no defensible code-moat (personal tool, not a product) so full-app duplication isn't really preventable or worth preventing. The actual exposure is that the live secret + endpoint let anyone bypass the UI and POST directly to Paul's production Apps Script — risk is garbage writes to the real Sheet, or burning `ANTHROPIC_API_KEY` quota via repeated Vision calls (key itself never leaves Script Properties). Sheet data and the API key are confirmed not exposed.
+- Paul said "do it now" — rotated `WEBHOOK_SECRET`: generated a new value (`openssl rand -hex 16`), swapped it into `index.html` (line 449), bumped footer to `SmartCart v0.3.1 — Secret Rotated`.
+- Considered making the repo private as a stronger fix — rejected, since free-tier GitHub Pages requires a public repo; rotation is the practical mitigation given the hosting constraint.
+
+### Files changed
+- `Projects/SmartCart/index.html` — `WEBHOOK_SECRET` constant rotated to new value; footer version bump (v0.3.0 → v0.3.1).
+- `Projects/SmartCart/PROJECT.md` — Apps Script Backend section (rotation note), new Known Issues entry (public repo / live secret exposure), Session Restore Instructions updated.
+- `Projects/SmartCart/JOURNAL.md` — this entry.
+- `TODO_LIST.md` — added `WEBHOOK_SECRET` rotation cadence entry; updated SmartCart resume cue.
+
+### Current status
+`index.html` is at v0.3.1 locally with the new secret — **not yet pushed to GitHub**, and the matching Script Property has **not yet been updated** on the live Apps Script project. Until both of those happen, the live site is still running the old secret (still works, just not yet rotated in production). v0.3.0 (package-label flow) was also never pushed from Session 10 — both changes are bundled in this push.
+
+### Queued for next session
+- **Paul, manual step required:** open the "SmartCart Setup" Apps Script project → Project Settings → Script Properties → update `WEBHOOK_SECRET` to `2ba8abbd062b1f713fbfe93cfd5afa7d` (matches what's now in `index.html`). No redeploy needed — Script Properties take effect immediately.
+- **Paul, push to GitHub** (Terminal):
+  ```
+  cd ~/Documents/Studio/Projects/SmartCart
+  git add .
+  git commit -m "v0.3.1: rotate WEBHOOK_SECRET; v0.3.0 package-label flow"
+  git push
+  ```
+- After both steps, confirm live: scan a receipt or check `?action=groceryList` still works end-to-end.
+- Revisit the `canada-grocery-price-comparison` and `canada-grocery-deals` Apify Actors when Phase 3 (price intelligence) work actually begins — not committed to either yet, just scoped as candidates.
+- Next Roadmap item: `Default Unit` pre-fill (item 5).
