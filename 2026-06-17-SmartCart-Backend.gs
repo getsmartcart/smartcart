@@ -130,7 +130,7 @@ function handleAddReceipt_(p) {
     ]);
 
     priceHistRows.push([
-      itemCanonical, store, date, pricePaid, unitPrice, source
+      itemCanonical, store, date, pricePaid, parseFloat(item.regularPrice) || pricePaid, unitPrice, source
     ]);
 
     upsertGroceryListItem_(ss, {
@@ -220,6 +220,10 @@ function handleUpdateReceipt_(p) {
 }
 
 // ── GroceryList upsert ───────────────────────────────────────────────────────
+// NOTE: writes are hardcoded to columns 1-10 on purpose. Column 11
+// ("Product URL(s)", added 2026-06-20) is manually/skill-maintained and must
+// stay untouched by receipt-driven upserts — do not widen these ranges to 11
+// without separating that field out first.
 
 function upsertGroceryListItem_(ss, item) {
   const sh = ss.getSheetByName('GroceryList');

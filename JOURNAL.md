@@ -352,18 +352,75 @@ Roadmap items 1–3 done, item 4 done in minimal form. `index.html` is at v0.3.0
 - `Projects/SmartCart/JOURNAL.md` — this entry.
 - `TODO_LIST.md` — added `WEBHOOK_SECRET` rotation cadence entry; updated SmartCart resume cue.
 
-### Current status
-`index.html` is at v0.3.1 locally with the new secret — **not yet pushed to GitHub**, and the matching Script Property has **not yet been updated** on the live Apps Script project. Until both of those happen, the live site is still running the old secret (still works, just not yet rotated in production). v0.3.0 (package-label flow) was also never pushed from Session 10 — both changes are bundled in this push.
+### Current status — ROTATION COMPLETE
+Both manual steps done same session: Paul updated the `WEBHOOK_SECRET` Script Property on the live "SmartCart Setup" Apps Script project (confirmed via screenshot — value matches `index.html`, no redeploy needed since Script Properties take effect immediately), and pushed to GitHub — commit `ae3f3d3` ("v0.3.1: rotate WEBHOOK_SECRET; v0.3.0 package-label flow"), confirmed local `HEAD` matches `origin/main` with a clean working tree. The old secret is fully dead; v0.3.0 (package-label flow, queued since Session 10) shipped in the same push.
+
+Re-checked GitHub Traffic Insights after the push: still 7 clones / 7 unique cloners, 4 views / 1 unique visitor, chart unchanged through 06/17 (GitHub's traffic data lags up to ~24h, so today's activity won't show until tomorrow).
+
+Closed out two follow-up questions Paul raised: (1) confirmed by reading `Backend.gs` line-by-line that no handler accepts a sheet ID/URL from the request — every write hardcodes `SpreadsheetApp.getActive()` — so the leaked secret could never have been used to redirect Paul's live script to write into an attacker's own Sheet; the only real exposure was `scanReceipt`/`scanPackageLabel` acting as a free Vision-OCR proxy paid for by Paul's Anthropic quota, with no Sheet involvement needed. (2) Paul questioned whether that's even a credible motive given free OCR alternatives exist (Google Lens, free ChatGPT/Gemini tiers) — agreed it's weak as a deliberate human motive; the clone-timing pattern (7 clones within ~1 day of the repo going public) fits automated GitHub secret-scanning bots far better than a targeted actor. Rotation was still correct as routine hygiene regardless.
 
 ### Queued for next session
-- **Paul, manual step required:** open the "SmartCart Setup" Apps Script project → Project Settings → Script Properties → update `WEBHOOK_SECRET` to `2ba8abbd062b1f713fbfe93cfd5afa7d` (matches what's now in `index.html`). No redeploy needed — Script Properties take effect immediately.
-- **Paul, push to GitHub** (Terminal):
-  ```
-  cd ~/Documents/Studio/Projects/SmartCart
-  git add .
-  git commit -m "v0.3.1: rotate WEBHOOK_SECRET; v0.3.0 package-label flow"
-  git push
-  ```
-- After both steps, confirm live: scan a receipt or check `?action=groceryList` still works end-to-end.
 - Revisit the `canada-grocery-price-comparison` and `canada-grocery-deals` Apify Actors when Phase 3 (price intelligence) work actually begins — not committed to either yet, just scoped as candidates.
 - Next Roadmap item: `Default Unit` pre-fill (item 5).
+
+---
+
+## 2026-06-20 — Session 12 (Flipp Shopping List Read + 7-Store Deal Report Dry-Run)
+
+### What was done
+- Read Paul's live Flipp shopping list via Claude in Chrome (after an initial extension disconnect — resolved on retry, no fix needed beyond reconnecting). Confirmed the page's underlying markup: every flyer-tile item is a single `<image>` with a generic alt label ("Weekly eFlyer 06/18-06/24", "Flyer") — no item name or price exists as real text anywhere in the DOM. Reading the list required scrolling + visually transcribing each tile from screenshots, not text extraction. 14 items confirmed across FreshCo (9), Walmart (4), Your Independent Grocer (1).
+- Paul asked what scraping "all grocers' flyers" would look like at scale — confirmed via the accessibility tree that the image-only-tile problem is structural (same for every store on Flipp, not a per-store quirk), so coverage would stay complete but throughput stays linear with screenshots — not viable as an automated job. Also flagged that every item in the list was internally tagged "Expired" in the page data despite being within the flyer's stated valid dates — a reliability flag if Flipp is considered as a data source later.
+- Paul then asked to run the real thing: Claude API + web search hitting stores directly (the locked Layer 2 architecture), one sub-agent per store, restricted to 7 categories — fresh produce, fresh meat (not frozen), cream, eggs, yogurt, frozen fruits/vegetables, bagels. Spawned 7 parallel general-purpose sub-agents (Safeway, Save-On-Foods, Real Canadian Superstore, Walmart, Costco, Your Independent Grocer, Co-op), each required to cite a source URL per item and report nothing rather than fabricate a price.
+- Results were uneven: **Safeway** and **Save-On-Foods** returned high-confidence, regionally-correct data (flyers-on-line.com republishes both as plain text, BC-wide flyer confirmed to cover Kamloops stores). **Walmart** and **Costco** returned lower-confidence data (generic Canada-wide aggregator / crowdsourced BC-region blog, not Kamloops-confirmed). **Real Canadian Superstore** and **Your Independent Grocer** returned zero items — both have a Kamloops-correct, date-correct flyer that exists, but only as scanned/JS images with no extractable text; the agents correctly declined to substitute Ontario-region text data they'd found instead. **Co-op** returned zero items for a different reason: extensive search found no full-line grocery Co-op actually serving Kamloops, BC at all — only Co-op gas bar/convenience locations (Columbia St W, Valleyview, Dallas Drive), none of which sell groceries.
+- This confirms the same structural finding from Session 11's 5-store coffee-price test (3 of 5 worked via pure search) at larger scale, and ties it directly to the image-flyer problem just observed on Flipp: most flyer sources — store sites, Flipp, and most aggregators — render flyers as images, not text. Only a handful of text-based aggregators (flyers-on-line.com, for the 2 stores that worked) close that gap. This will recur weekly for whichever stores lack one.
+- Wrote the full report to `2026-06-20-SmartCart-WeeklyDealReport.md`, grouped by category with per-store confidence notes and a methodology section naming two paths to closing the gap when this becomes a real Apps Script job: (1) accept partial coverage and report "no data" honestly per store, same as this run, or (2) add a Claude Vision step to read image-only flyers directly — same approach that worked for reading the Flipp screenshots.
+
+### Files changed (dry-run portion)
+- `Projects/SmartCart/2026-06-20-SmartCart-WeeklyDealReport.md` — new. Full 7-store report.
+- `Projects/SmartCart/JOURNAL.md` — this entry.
+
+### Current status (dry-run portion)
+Manual dry-run only — not wired into any automated trigger. Confirms the Layer 2 architecture works where a text-based flyer aggregator exists, and confirms the failure mode (image-only flyers) is the dominant blocker, not search quality. 2 of 7 target stores high-confidence, 2 partial, 3 zero (2 technical, 1 a genuine "this store doesn't exist here" finding).
+
+### Co-op — resolved
+Paul confirmed: drop it. **PROJECT.md edited** — removed "Co-op" from the Target Stores (Kamloops, BC) list.
+
+### Live price spot-check (Kraft Smooth Peanut Butter, 2kg, regular price)
+At Paul's request, fetched current non-sale prices directly from product pages rather than flyers: **Walmart.ca** $10.97 ($0.55/100g, nationwide online price, high confidence). **Real Canadian Superstore / PC Express** $12.00 ($0.60/100g, confirmed not-on-sale) — but repeated attempts (store-locator address entry, "set as preferred store" click, direct store-details-page click) all failed to pin the displayed price to the actual Kamloops store (910 Columbia St W, store #1522); the page kept defaulting back to a Toronto-region store across 3+ tries. Reported to Paul with that caveat rather than presenting it as Kamloops-confirmed. Recommended manual alternative: Paul check via his own logged-in PC Express account.
+
+### Account-based automation question
+Paul asked whether Claude could use "a theoretical account" he creates for grocery sites to do price comparisons. Answer: no — creating accounts or entering credentials/passwords is a hard prohibition that holds regardless of framing ("theoretical," explicit authorization, etc.). Real working path instead: Paul logs into a grocery site himself in his own Chrome profile; Claude-in-Chrome shares that same browser profile/cookie jar, so a subsequent Claude-in-Chrome navigation to the same site should inherit the authenticated session — without Claude ever handling the password.
+
+### Product vision discussion + marketability reframe
+Paul described the long-term vision: a personal "items I typically buy" DB, queried weekly against grocer sites, filtered into a Friday-morning best-price-per-store shopping list. Mapped this to the existing four-layer architecture: this is **Layer 3 (on-demand search) run as a scheduled weekly batch over a fixed list**, not Layer 2 — Layer 2 only surfaces items currently on a sale flyer and would return nothing for routine staples most weeks. Paul then explicitly took marketability off the table for this project ("beyond the reach of common folks"), framing grocery price-comparison friction as a deliberate industry moat rather than just inherent complexity. Engaged with this by grounding it in the Competition Bureau's actual June 2023 "Canada Needs More Grocery Competition" report (rising margins, recommended unit-pricing standards) rather than just agreeing or disagreeing, then refocused on the practical personal-use build.
+
+### Sheets schema — Weekly Compare Skill (Layer 3 batch), designed and partially built
+Determined GroceryList already functions as the "items I typically buy" DB (auto-built from Purchases/receipts, no manual pre-population needed) — no new DB required. Identified and closed two real schema gaps, plus formalized Paul's four follow-up requirements (what to buy, what's running low, when to stock up, whether a "sale" is a real discount) into a new Roadmap section:
+- **GroceryList column 11, `Product URL(s)`** — manual, format `Store: URL; Store: URL`. Reference field for the weekly skill to re-fetch a known product page per item per store instead of re-searching each week. Confirmed safe: `upsertGroceryListItem_` hardcodes a 10-column write, so this column is never touched by the receipt-driven upsert. Added a guard comment in `Backend.gs` warning against widening that range later.
+- **GroceryList column 12, `Typical Interval (Days)`** — reserved, empty until built (same pattern as `Default Unit`). Will hold the median gap between an item's past purchase dates, to power the "what am I running out of" signal (Roadmap item 10).
+- **GroceryList column 13, `Weekly Compare (Y/N)`** — manual flag, Y/N dropdown validation added in `SheetSetup.gs`. Distinguishes staples Paul actually wants price-checked weekly from one-off receipt items that auto-populated GroceryList.
+- **PriceHistory column 5, `Regular Price`** — real gap: PriceHistory only logged one price per observation, with nothing to compare a "sale" against. Added the column; `handleAddReceipt_` now writes `item.regularPrice` into PriceHistory (previously only Purchases captured it), so every future price point — receipt or weekly-batch — records both what was charged and what the source called "regular."
+- **New PROJECT.md section, "Roadmap — Weekly Compare Skill (Layer 3 Batch)"**, items 10–13: (10) running-low signal from `Typical Interval (Days)`; (11) stock-up signal — freezable/shelf-stable items priced notably below their own rolling average, reusing item 7's machinery in reverse; (12) fake-sale/inflated-discount detector — compares this week's stated regular and sale price against the item's own trailing 8–12 week `PriceHistory` average per store, flags if the "regular" price looks freshly inflated or the "sale" isn't actually below typical; (13) the `Weekly Compare` flag itself. Thresholds (10% starting point) flagged as tunable, not finalized. Trigger mechanism and Reports-tab integration explicitly left undecided.
+- Spec only — no batch-query skill/script written yet. `setupSmartCartSheet` needs one re-run to push the 4 new headers to the live Sheet; `Backend.gs` needs re-pasting into the live Apps Script project + a new Web App deployment version for the `regularPrice` capture fix to take effect (SheetSetup changes don't need a redeploy, just a Run).
+
+### Dollar store research (informational, no schema impact)
+Checked whether Dollarama, Dollar Tree Canada, Buck or Two, or Family Dollar offer APIs or per-item online pricing for Kamloops. None do. Dollarama's online store sells case quantities only (not single-item browsing) and has no public API; Dollar Tree Canada similar. Both run fixed price tiers ($1.25–$5) with essentially no discounting, so even if data were accessible there's no sale-vs-regular signal to track — concluded dollar stores aren't a fit for the weekly-compare/fake-sale logic and aren't worth building a source for.
+
+### Files changed (full session)
+- `Projects/SmartCart/PROJECT.md` — Co-op removed from Target Stores; GroceryList/PriceHistory schema table updated (Product URL(s), Typical Interval (Days), Weekly Compare (Y/N), Regular Price); Data Entry Model section expanded; new "Roadmap — Weekly Compare Skill (Layer 3 Batch)" section (items 10–13) added.
+- `Projects/SmartCart/2026-06-17-SmartCart-SheetSetup.gs` — GroceryList headers gained `Product URL(s)`, `Typical Interval (Days)`, `Weekly Compare (Y/N)`; PriceHistory headers gained `Regular Price`; Y/N validation added for `Weekly Compare (Y/N)`.
+- `Projects/SmartCart/2026-06-17-SmartCart-Backend.gs` — guard comment added above `upsertGroceryListItem_`; `handleAddReceipt_`'s `priceHistRows` push now includes `regularPrice`.
+- `Projects/SmartCart/JOURNAL.md` — this entry (expanded).
+- Live Google Sheet and live Apps Script deployment: **not yet updated** — local file edits only, pending Paul's manual Sheet re-run + redeploy.
+- GitHub: **not yet pushed** — working tree has 4 modified files + 1 untracked (`2026-06-20-SmartCart-WeeklyDealReport.md`) as of session end.
+
+### Current status (full session)
+Spec and local code/doc changes complete. Three manual steps remain before any of today's work is live: (1) git push, (2) re-run `setupSmartCartSheet` once for the live Sheet headers, (3) re-paste `Backend.gs` into the live Apps Script project and redeploy (Version 4) for the `regularPrice` capture to take effect. Exact commands given to Paul in chat.
+
+### Queued for next session
+- Confirm Paul completed the 3 manual steps above; verify live Sheet shows 13 GroceryList columns / 7 PriceHistory columns.
+- Decide trigger mechanism for the Weekly Compare batch (Apps Script time trigger vs. Paul-initiated) — left open in the Roadmap spec.
+- Decide whether fake-sale-detector flags (item 12) render as one combined flag or two independent ones on output — left open.
+- Begin populating `Product URL(s)` for Paul's actual staples list once `Weekly Compare (Y/N)` items are chosen — needed before the batch skill has anything to fetch.
+- Next Roadmap item from the earlier list: `Default Unit` pre-fill (item 5) — still queued, unchanged from Sessions 10–11.
+- Next Roadmap item: `Default Unit` pre-fill (item 5) — still queued from Session 11, untouched this session.

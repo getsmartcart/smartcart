@@ -35,7 +35,6 @@ Inflation tracking and true unit-price comparison are core to the mission. Store
 - Walmart
 - Costco
 - Independent Grocer
-- Co-op
 
 **Online / dynamic pricing:**
 - Amazon.ca
@@ -134,10 +133,10 @@ Category is carried through silently from Claude's `scanReceipt` parse (or match
 |-----|---------|-------------|
 | Categories | Master taxonomy + FSRI cross-reference (new) | Category, FSRI_Category |
 | Purchases | Full receipt history | Date, Store, Item (raw), Item (canonical), Brand, Package Size, Qty, Price Paid, Regular Price, Unit Price, Category, Subcategory, FSRI_Category, Source, Receipt ID, Notes |
-| GroceryList | Personal item list — auto-derived from Purchases, no manual pre-population | Item (canonical), Category, Subcategory, Default Unit, Preferred Store(s), Last Purchased, Last Price, Last Unit Price, Freezable, Active |
+| GroceryList | Personal item list — auto-derived from Purchases, no manual pre-population | Item (canonical), Category, Subcategory, Default Unit, Preferred Store(s), Last Purchased, Last Price, Last Unit Price, Freezable, Active, Product URL(s), Typical Interval (Days), Weekly Compare (Y/N) |
 | Preferences | User settings (key-value) | Setting, Value |
 | Reports | Log of weekly reports sent | Date Sent, Items Flagged, Best Deals Summary, Status |
-| PriceHistory | Item × store × date price log for trend analysis | Item (canonical), Store, Date, Price, Unit Price, Source |
+| PriceHistory | Item × store × date price log for trend analysis | Item (canonical), Store, Date, Price, Regular Price, Unit Price, Source |
 | Nutrition | Phase 4 stub — empty headers only | Item (canonical), Calories/100g, Protein/100g, Fat/100g, Carbs/100g |
 
 ### Category Taxonomy (cross-referenced to FSRI)
@@ -162,7 +161,11 @@ Health & Wellness covers Vitamins / Supplements / Prescriptions / OTC via a Subc
 ### Data Entry Model
 
 - **Purchases:** scanner is the primary path (Phase 1 build); manual row entry for cash/no-receipt buys.
-- **GroceryList:** auto-derived from Purchases via Apps Script upsert.
+- **GroceryList:** auto-derived from Purchases via Apps Script upsert (columns 1–10 only).
+- **Product URL(s)** *(added 2026-06-20, column 11):* manually maintained, never touched by the receipt-driven upsert (`upsertGroceryListItem_` hardcodes a 10-column write — see comment in Backend.gs). Format: `Store: URL; Store: URL` per item, one entry per tracked store carrying that item. This is the reference field the planned weekly-compare skill (Layer 3 batch) will read to re-fetch a known product page per item per store, rather than re-searching from scratch each week.
+- **Typical Interval (Days)** *(added 2026-06-20, column 12):* reserved, empty until built — see Roadmap "Weekly Compare Skill" item 10. Same pattern as `Default Unit` (#5 below): column exists now, computation logic comes later.
+- **Weekly Compare (Y/N)** *(added 2026-06-20, column 13):* manually set by Paul. Distinguishes "typically buy, run the Friday price check on this" from a one-off receipt item that auto-populated GroceryList but shouldn't be price-checked weekly. See Roadmap item 13.
+- **PriceHistory Regular Price** *(added 2026-06-20, column 5):* `handleAddReceipt_` now carries `item.regularPrice` straight into PriceHistory (previously only Purchases captured it), so every logged price point — receipt-driven or, later, weekly-batch-driven — records both what was actually charged and what the source called "regular." This is the baseline the fake-sale detector (Roadmap item 12) compares against.
 - **Preferences:** typed directly into the sheet for now — no Settings UI yet.
 - **Reports / PriceHistory:** written automatically by Apps Script.
 - **Item-name matching:** confirm screen (autocomplete existing GroceryList items + "add new"), not fuzzy auto-match.
@@ -195,6 +198,21 @@ Triggered by noticing FreshCo's receipt didn't print weight for meat items, and 
 9. **FSRI narrative tie-in** — the one genuinely AI-reasoned step: feed the user's own price-trend numbers (from #7/#8) plus the relevant FSRI report excerpt to Claude, and have it produce the one-line verdict ("coincides with" / "conflicts with" the FSRI signal). Depends on #7/#8 existing first.
 
 **Separately decided:** no standalone desktop app for querying purchase history — stays inside the existing PWA, since the Sheet + Apps Script backend is already the single source of truth. Structured questions ("lowest price for Creamo") get a simple read endpoint + client-side filter; fuzzy/natural-language questions ("best coffee deal this week") get routed through the existing Claude API call over the relevant rows — no need to wait for #6 to answer the fuzzy case, Claude can eyeball package sizes in raw item text directly.
+
+---
+
+## Roadmap — Weekly Compare Skill (Layer 3 Batch) (designed 2026-06-20, not yet built)
+
+Personal tool, not a product — see Session 12 JOURNAL entry for the marketability discussion that settled this framing. Goal: a Friday-morning run over GroceryList items flagged for weekly compare, using each item's `Product URL(s)` to re-fetch a known page per store rather than re-searching, answering four questions Paul asked directly:
+
+10. **Running-low / replenishment signal** — deterministic. `Typical Interval (Days)` (GroceryList column 12, reserved) is computed from the gaps between an item's consecutive `Purchases` dates (median of those gaps, recomputed on each new receipt). An item surfaces on the weekly list once `Today − Last Purchased ≥ Typical Interval`. New items with fewer than 2 purchases have no interval yet — they only show up via the manual `Weekly Compare (Y/N)` flag (see below), not via this signal.
+11. **Stock-up signal** — deterministic, reuses #7's rolling-average machinery in reverse: an item qualifies as stock-up-worthy when (a) `Freezable = Y` or its Category is inherently shelf-stable (Pantry & Condiments, Grains & Cereals, Sugar & Sweeteners, Coffee/Tea/Cocoa, Edible Oils), and (b) this week's price is notably *below* that item's own rolling average unit price (same threshold #7 uses for "notably above," mirrored). Perishables (Produce, Dairy, fresh Proteins) never qualify regardless of price.
+12. **Fake-sale / inflated-discount detector** — deterministic, the one Paul explicitly asked for. For each item+store, compare this week's stated Regular Price against the trailing 8–12 weeks of `PriceHistory` Regular Price entries for that same item+store (now populated for every observation, see Data Entry Model above). Two checks: (a) if today's "Regular Price" sits notably higher than the recent historical average regular price, flag — the "regular" price itself looks freshly inflated to manufacture a discount; (b) if today's "Sale Price" isn't meaningfully below that same historical baseline, flag — you're not actually paying less than you typically have, regardless of what the flyer claims. An item can fail either, both, or neither check. Threshold starts at a flat 10% in both directions — tune after seeing real output, not guessed in advance.
+13. **`Weekly Compare (Y/N)` flag** — new GroceryList column, manually set by Paul, separate from `Active`. Marks which items the Friday batch actually runs against (the "typically buy" staples — coffee, olive oil, pasta, etc.), as distinct from one-off receipt items that auto-populated GroceryList but shouldn't be price-checked every week.
+
+**Output:** appends to `PriceHistory` per item/store checked, then a synthesized list — item, best store, price, and any flags from #10–#12 — in the same spirit as the existing Layer 2 Weekly Deal Report markdown, not yet a Reports-tab row (Reports is currently scoped to Layer 2; revisit whether to share or split when this gets built).
+
+**Not yet decided:** trigger mechanism (Apps Script time trigger vs. Paul-initiated), and whether item 12's two checks render as one combined flag or two independent ones on the output list.
 
 ---
 
@@ -312,7 +330,7 @@ No source is hardcoded. Claude's web search prompt will be updated to include ne
 
 Upload this file at the start of each session. If an `index.html` exists, upload that too. State which phase you're working on and Claude will resume without re-litigating prior decisions.
 
-**Current status:** Phase 1 complete and verified end-to-end with real receipts — Google Sheets schema, Apps Script backend (Web App Version 3, `scanReceipt` + `addReceipt` + `scanPackageLabel` + `updateReceipt`), and PWA shell with a fully built Receipt Scanner tab including the post-save completion flow, all built — `index.html` v0.3.0, **built locally but NOT yet pushed to GitHub** (live site still shows v0.2.1 until Paul pushes — see git commands in JOURNAL.md Session 10 entry). **2026-06-17 (Session 7):** fixed a missing OAuth scope (`script.external_request`) that was blocking `scanReceipt`; re-tested live with 3 real receipt photos, all confirmed correctly saved to Sheets. Designed (not yet built) a Roadmap for unit-pricing accuracy, an item-completion/edit flow, and phased price-intelligence alerts — see "Roadmap" section above. **2026-06-18 (Session 8):** deleted temp `Untitled.gs`. **2026-06-18 (Session 9):** fixed the non-sticky Save All button (CSS-only, fixed bar above footer) — v0.2.1, visually verified, pushed to GitHub. **2026-06-18 (Session 10):** built Roadmap items 2–4 — Apps Script Version 3 deployed (`scanPackageLabel` + `updateReceipt`), inline package-label-scan completion flow built in `index.html` (sequential queue, Scan + Skip per item), structural + static visual verification passed — v0.3.0, not yet pushed. Next: Paul pushes to GitHub; then Roadmap item 5 (`Default Unit` pre-fill). **2026-06-18 (Session 11):** investigated a GitHub clone-activity question (7 clones/14 days) — confirmed the public repo exposes the full Apps Script backend source plus a live, working `WEBHOOK_SECRET`/`SHEETS_URL` hardcoded in `index.html` (see Known Issues). Rotated the secret, bumped to v0.3.1, **not yet pushed**. Paul still needs to update the matching Script Property and push — see JOURNAL.md Session 11 for exact steps. Next: confirm rotation live end-to-end, then Roadmap item 5 (`Default Unit` pre-fill).
+**Current status:** Phase 1 complete and verified end-to-end with real receipts — Google Sheets schema, Apps Script backend (Web App Version 3, `scanReceipt` + `addReceipt` + `scanPackageLabel` + `updateReceipt`), and PWA shell with a fully built Receipt Scanner tab including the post-save completion flow, all built — `index.html` v0.3.0, **built locally but NOT yet pushed to GitHub** (live site still shows v0.2.1 until Paul pushes — see git commands in JOURNAL.md Session 10 entry). **2026-06-17 (Session 7):** fixed a missing OAuth scope (`script.external_request`) that was blocking `scanReceipt`; re-tested live with 3 real receipt photos, all confirmed correctly saved to Sheets. Designed (not yet built) a Roadmap for unit-pricing accuracy, an item-completion/edit flow, and phased price-intelligence alerts — see "Roadmap" section above. **2026-06-18 (Session 8):** deleted temp `Untitled.gs`. **2026-06-18 (Session 9):** fixed the non-sticky Save All button (CSS-only, fixed bar above footer) — v0.2.1, visually verified, pushed to GitHub. **2026-06-18 (Session 10):** built Roadmap items 2–4 — Apps Script Version 3 deployed (`scanPackageLabel` + `updateReceipt`), inline package-label-scan completion flow built in `index.html` (sequential queue, Scan + Skip per item), structural + static visual verification passed — v0.3.0, not yet pushed. Next: Paul pushes to GitHub; then Roadmap item 5 (`Default Unit` pre-fill). **2026-06-18 (Session 11 — closed):** investigated a GitHub clone-activity question (7 clones/14 days) — confirmed the public repo exposes the full Apps Script backend source plus a live, working `WEBHOOK_SECRET`/`SHEETS_URL` hardcoded in `index.html` (see Known Issues). Rotated the secret, bumped to v0.3.1, Script Property updated by Paul and verified, pushed to GitHub (commit `ae3f3d3`) — live site now serves v0.3.1. Confirmed via full read of `Backend.gs` that no handler accepts a sheet ID/URL, so the leaked secret could never redirect writes to an attacker's Sheet; the real (now closed) exposure was OCR-proxy abuse of `scanReceipt`/`scanPackageLabel` against Paul's Anthropic quota. GitHub traffic re-checked post-push, no new activity yet (reporting lag). Next: Roadmap item 5 (`Default Unit` pre-fill).
 
 ---
 

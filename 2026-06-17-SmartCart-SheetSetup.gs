@@ -28,10 +28,11 @@ function setupSmartCartSheet() {
       'Category', 'Subcategory', 'FSRI_Category', 'Source', 'Receipt ID', 'Notes'],
     'GroceryList': ['Item (Canonical)', 'Category', 'Subcategory', 'Default Unit',
       'Preferred Store(s)', 'Last Purchased', 'Last Price', 'Last Unit Price',
-      'Freezable (Y/N)', 'Active (Y/N)'],
+      'Freezable (Y/N)', 'Active (Y/N)', 'Product URL(s)', 'Typical Interval (Days)',
+      'Weekly Compare (Y/N)'],
     'Preferences': ['Setting', 'Value'],
     'Reports': ['Date Sent', 'Items Flagged', 'Best Deals Summary', 'Status'],
-    'PriceHistory': ['Item (Canonical)', 'Store', 'Date', 'Price', 'Unit Price', 'Source'],
+    'PriceHistory': ['Item (Canonical)', 'Store', 'Date', 'Price', 'Regular Price', 'Unit Price', 'Source'],
     'Nutrition': ['Item (Canonical)', 'Calories/100g', 'Protein/100g', 'Fat/100g', 'Carbs/100g']
   };
 
@@ -105,6 +106,7 @@ function setupSmartCartSheet() {
     { tab: 'GroceryList', column: 'Category', rule: categoryRule, rows: 1000 },
     { tab: 'GroceryList', column: 'Freezable (Y/N)', rule: yesNoRule, rows: 1000 },
     { tab: 'GroceryList', column: 'Active (Y/N)', rule: yesNoRule, rows: 1000 },
+    { tab: 'GroceryList', column: 'Weekly Compare (Y/N)', rule: yesNoRule, rows: 1000 },
     { tab: 'Reports', column: 'Status', rule: statusRule, rows: 500 }
   ];
 
