@@ -411,16 +411,24 @@ Checked whether Dollarama, Dollar Tree Canada, Buck or Two, or Family Dollar off
 - `Projects/SmartCart/2026-06-17-SmartCart-SheetSetup.gs` — GroceryList headers gained `Product URL(s)`, `Typical Interval (Days)`, `Weekly Compare (Y/N)`; PriceHistory headers gained `Regular Price`; Y/N validation added for `Weekly Compare (Y/N)`.
 - `Projects/SmartCart/2026-06-17-SmartCart-Backend.gs` — guard comment added above `upsertGroceryListItem_`; `handleAddReceipt_`'s `priceHistRows` push now includes `regularPrice`.
 - `Projects/SmartCart/JOURNAL.md` — this entry (expanded).
-- Live Google Sheet and live Apps Script deployment: **not yet updated** — local file edits only, pending Paul's manual Sheet re-run + redeploy.
-- GitHub: **not yet pushed** — working tree has 4 modified files + 1 untracked (`2026-06-20-SmartCart-WeeklyDealReport.md`) as of session end.
+- Live Google Sheet and live Apps Script deployment: **updated later this same session** — see "Live sync completed" below.
+- GitHub: pushed (working tree clean, up to date with `origin/main`) by session end.
 
 ### Current status (full session)
-Spec and local code/doc changes complete. Three manual steps remain before any of today's work is live: (1) git push, (2) re-run `setupSmartCartSheet` once for the live Sheet headers, (3) re-paste `Backend.gs` into the live Apps Script project and redeploy (Version 4) for the `regularPrice` capture to take effect. Exact commands given to Paul in chat.
+All three steps that were pending at the spec stage are now done: git pushed, `setupSmartCartSheet` re-run live, and `Backend.gs` redeployed as Web App Version 4. Today's schema/backend work (GroceryList cols 11–13, PriceHistory col 5, regularPrice capture) is fully live end to end.
+
+### Live sync completed (same session, continued — Claude-in-Chrome)
+Paul confirmed the Smart Cart sheet was open in Chrome and asked Claude to proceed with the live updates directly, alerting him only if a human-interaction checkpoint (OAuth/permission prompt) came up. None did — both syncs completed without any auth prompt.
+
+- **Code.gs (live):** edited the three pending header/validation changes directly in the Apps Script editor (GroceryList headers, PriceHistory headers, `Weekly Compare (Y/N)` validation entry), saved, then ran `setupSmartCartSheet` from the editor. Execution log showed a clean run, no errors. Verified directly in the Sheet: toast "SmartCart schema setup complete — 7 tabs ready," GroceryList at 13 columns with all 13 existing data rows untouched, PriceHistory at 7 columns. Matches the local `.gs` file exactly — confirmed safe-to-re-run as documented.
+- **Backend.gs (live):** edited the `priceHistRows.push` line to add `parseFloat(item.regularPrice) || pricePaid`, and inserted the 4-line guard comment above `upsertGroceryListItem_`. Hit one real problem along the way — see Errors below. Both edits verified clean via screenshot, then saved.
+- **Redeployed as Web App Version 4** (20 Jun 2026, 09:56) via Deploy → Manage Deployments → New version, description "Capture regularPrice into PriceHistory; document GroceryList col 11 guard." Same Deployment URL as before (deployment versions don't change the URL) — no client-side `index.html` change needed.
+
+### Error encountered and fixed: editor corruption during guard-comment insertion
+First attempt at inserting the 4-line guard comment used a single `type` action with embedded `\n` characters, while the Cmd+F find bar used moments earlier to locate the function was apparently still focused. Result: the 4 comment lines landed in reversed/garbled order, merged onto one line, overwriting the `function upsertGroceryListItem_(ss, item) {` signature. Caught immediately via screenshot before saving — the corruption stayed confined to the in-browser unsaved editor buffer; the live deployed code was never affected. Recovered with repeated Cmd+Z (closing the find bar first) until the file was back to its last-saved, fully clean state — this also reverted the `priceHistRows` edit, so both edits were redone from scratch: the `regularPrice` insertion via double-click-to-select-word + type (no braces, low risk), and the guard comment via separate `type` + `key:Return` pairs per line instead of one multi-line `type` call. Both verified clean on the redo. **Lesson for future live `.gs` edits:** never use a single `type` call with embedded `\n` in this editor — always pair one `type` per line with a separate `Return` keypress, and confirm Cmd+F is fully closed (click its X, not just Escape) before typing.
 
 ### Queued for next session
-- Confirm Paul completed the 3 manual steps above; verify live Sheet shows 13 GroceryList columns / 7 PriceHistory columns.
 - Decide trigger mechanism for the Weekly Compare batch (Apps Script time trigger vs. Paul-initiated) — left open in the Roadmap spec.
 - Decide whether fake-sale-detector flags (item 12) render as one combined flag or two independent ones on output — left open.
 - Begin populating `Product URL(s)` for Paul's actual staples list once `Weekly Compare (Y/N)` items are chosen — needed before the batch skill has anything to fetch.
-- Next Roadmap item from the earlier list: `Default Unit` pre-fill (item 5) — still queued, unchanged from Sessions 10–11.
 - Next Roadmap item: `Default Unit` pre-fill (item 5) — still queued from Session 11, untouched this session.
