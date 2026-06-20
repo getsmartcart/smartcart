@@ -426,7 +426,7 @@
 
   </main>
 
-  <footer class="app-footer">SmartCart v0.3.1 — Secret Rotated</footer>
+  <footer class="app-footer">SmartCart v0.3.2 — Missing Unit Price Scan</footer>
 
 </div>
 
@@ -479,8 +479,12 @@
   let packageQueueIndex = 0;
 
   // Categories whose rows commonly lack a printed Package Size (weighed
-  // meat/deli/produce) — these trigger the post-save package-label scan.
-  // See PROJECT.md Roadmap item 2.
+  // meat/deli/produce). These are the *candidate pool* for the post-save
+  // package-label scan — within that pool, a row only actually queues if
+  // its unitPrice came back 0/missing from the receipt scan (see
+  // handleScanReceipt_ in Backend.gs). If the receipt itself already
+  // printed a per-unit price for that item, the scan is skipped.
+  // See PROJECT.md Roadmap item 2 (tightened 2026-06-20, Session 13).
   const PACKAGE_SCAN_CATEGORIES = ['proteins', 'produce'];
 
   function advancePackageQueue() {
@@ -622,6 +626,11 @@
     const row = document.createElement('div');
     row.className = 'confirm-row';
     row.dataset.category = item.category || '';
+    // Carried through unedited from the receipt scan — 0 if the receipt
+    // didn't print a per-unit price for this line. Drives the post-save
+    // package-label-scan trigger (see PACKAGE_SCAN_CATEGORIES). Not shown
+    // in the UI on purpose — no new fields, no layout shift.
+    row.dataset.unitPrice = (item.unitPrice !== undefined && item.unitPrice !== null) ? item.unitPrice : 0;
 
     const nameInput = document.createElement('input');
     nameInput.type = 'text';
@@ -681,12 +690,14 @@
       if (!name) return;
       const qty = parseFloat(row.querySelector('.row-qty').value);
       const price = parseFloat(row.querySelector('.row-price').value);
+      const unitPrice = parseFloat(row.dataset.unitPrice);
       items.push({
         itemRaw: name,
         itemCanonical: name,
         qty: isNaN(qty) ? 1 : qty,
         pricePaid: isNaN(price) ? 0 : price,
-        category: resolveCategory(name, row.dataset.category)
+        category: resolveCategory(name, row.dataset.category),
+        unitPrice: isNaN(unitPrice) ? 0 : unitPrice
       });
     });
     if (items.length === 0) {
@@ -721,7 +732,9 @@
         successMsgEl.textContent = items.length + ' item' + (items.length === 1 ? '' : 's') + ' saved to your Purchases.';
         loadGroceryListOnce();
         packageQueue = items.filter(function (it) {
-          return PACKAGE_SCAN_CATEGORIES.indexOf((it.category || '').trim().toLowerCase()) !== -1;
+          const inCandidatePool = PACKAGE_SCAN_CATEGORIES.indexOf((it.category || '').trim().toLowerCase()) !== -1;
+          const missingUnitPrice = !it.unitPrice || it.unitPrice <= 0;
+          return inCandidatePool && missingUnitPrice;
         });
         packageQueueIndex = 0;
         advancePackageQueue();

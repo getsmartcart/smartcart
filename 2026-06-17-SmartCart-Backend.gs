@@ -329,9 +329,14 @@ function formatDate_(d) {
  *   imageBase64: '...',
  *   mediaType: 'image/jpeg' | 'image/png' | 'image/webp'
  * }
- * Returns: { ok: true, store, date, items: [{ itemRaw, qty, pricePaid, category }] }
- * Requires ANTHROPIC_API_KEY script property. Does not write to the Sheet -
- * the PWA confirm screen calls addReceipt separately once Paul approves.
+ * Returns: { ok: true, store, date, items: [{ itemRaw, qty, pricePaid, category, unitPrice }] }
+ * unitPrice is the per-kg/lb/100g price ONLY if the receipt itself prints one
+ * next to the line item (common for weighed meat/produce in some stores) —
+ * 0 if not shown. This lets the PWA tell "receipt had it" apart from
+ * "receipt didn't" before deciding whether to prompt a package-label scan
+ * (see PACKAGE_SCAN_CATEGORIES in index.html). Requires ANTHROPIC_API_KEY
+ * script property. Does not write to the Sheet - the PWA confirm screen
+ * calls addReceipt separately once Paul approves.
  */
 function handleScanReceipt_(p) {
   const apiKey = PropertiesService.getScriptProperties().getProperty('ANTHROPIC_API_KEY');
@@ -347,8 +352,9 @@ function handleScanReceipt_(p) {
 
   const prompt = 'You are extracting structured data from a photo of a grocery store receipt. ' +
     'Return ONLY valid JSON, no markdown fences, no commentary, matching exactly this shape: ' +
-    '{"store": string, "date": "YYYY-MM-DD or empty string if not legible", "items": [{"itemRaw": string, "qty": number, "pricePaid": number, "category": string}]}. ' +
+    '{"store": string, "date": "YYYY-MM-DD or empty string if not legible", "items": [{"itemRaw": string, "qty": number, "pricePaid": number, "category": string, "unitPrice": number}]}. ' +
     'For pricePaid use the actual price paid for that line item (after any in-line discount shown on the receipt), not the regular price. ' +
+    'unitPrice is a per-kg, per-lb, or per-100g price ONLY if the receipt itself prints one directly next to that line item (common for weighed meat/produce) — use 0 if no such per-unit price is printed on the receipt for that item. Do not estimate or compute one yourself. ' +
     'Skip subtotal, tax, total, and loyalty or points lines, only include actual purchased items. ' +
     'category must be exactly one of: ' + categories.join(', ') + '. Pick the closest match if unsure.';
 
