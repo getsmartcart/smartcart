@@ -432,3 +432,128 @@ First attempt at inserting the 4-line guard comment used a single `type` action 
 - Decide whether fake-sale-detector flags (item 12) render as one combined flag or two independent ones on output — left open.
 - Begin populating `Product URL(s)` for Paul's actual staples list once `Weekly Compare (Y/N)` items are chosen — needed before the batch skill has anything to fetch.
 - Next Roadmap item: `Default Unit` pre-fill (item 5) — still queued from Session 11, untouched this session.
+
+---
+
+## 2026-06-20 — Session 13 (Tighten Package-Label-Scan Trigger)
+
+Paul: "tighten the scan trigger for missing data. But only for missing data if the receipt doesn't have it." The Session 10 completion flow (Known Issues / Roadmap item 2) queued a package-label scan for *every* Proteins/Produce row, even when the receipt itself had already printed a per-unit price (e.g. produce that shows "0.370 kg @ $2.84/kg" on the receipt). Paul wanted the prompt to fire only when the data is genuinely missing, not just because the category is a usual suspect.
+
+**Fix — candidate-pool-plus-missing-data hybrid:**
+- `Backend.gs` (`handleScanReceipt_`): added `unitPrice` to the Claude Vision extraction prompt and JSON shape — `unitPrice` is the per-kg/lb/100g price *only* if the receipt itself prints one next to the line item; `0` if not shown. Model is explicitly told not to estimate or compute one itself. JSDoc above the function expanded to document the new field and why it exists (ties back to `PACKAGE_SCAN_CATEGORIES` in `index.html`).
+- `index.html`: `unitPrice` is now carried untouched from the scan result into each confirm-row (`row.dataset.unitPrice`, not rendered in the UI — no layout change), through to the saved item object, and into the post-save `packageQueue` filter. That filter is now `inCandidatePool && missingUnitPrice` instead of category alone.
+- Footer version bumped `v0.3.1 → v0.3.2 — Missing Unit Price Scan`.
+- Both files edited and verified locally first (`git diff` reviewed line-by-line), then live-synced into the Apps Script editor for the "SmartCart Setup" project before redeploying — see below.
+
+### Live sync (same session, Claude-in-Chrome)
+Synced the local `Backend.gs` prompt + JSDoc edits into the live Apps Script editor (tabId 2086878675) by hand, since the GitHub MCP connector is non-functional in Cowork and Apps Script changes don't take effect until redeployed.
+
+- **Prompt-construction block** (lines 348–354): replaced to add `unitPrice` to the JSON shape and the new extraction instructions. Verified exact match against the local file via `get_page_text`.
+- **JSDoc comment** above `handleScanReceipt_` (lines 332–334 → expanded to 8 lines): replaced to document the new `unitPrice` field and its role in the trigger logic. Verified via `get_page_text`.
+- **Redeployed as Web App Version 5** (20 Jun 2026, 11:17) via Deploy → Manage Deployments → New version, description "Extract per-unit price from receipt when printed; tighten package-label-scan trigger to fire only on genuinely missing unit-price data." Same Deployment URL as before — no client-side `index.html` change needed for the URL itself, only for the trigger-filter logic already described above.
+
+### Error encountered and fixed: editor selection/undo corruption (self-recovered)
+While replacing the prompt-construction block, a `left_click` with a `shift` modifier was used to try to extend a text selection — this silently failed to select anything, and the subsequent typed replacement inserted at the unselected cursor instead of replacing, duplicating several lines. `Cmd+Z` undo proved to only revert in small (~word-level) increments, impractical for a multi-line insertion at that granularity; recovered instead by redoing forward (`Cmd+Shift+Z`) back to the fully-botched state, then fixing forward with precise selections. Two follow-up lessons banked for future live `.gs`/editor work: (1) `shift`-modified clicks do not reliably extend selections in this editor — use `shift+Down`/`shift+Right`/`shift+End` key presses instead; (2) `shift+Down` advances by visual (soft-wrapped) line, not logical line, so long lines that wrap consume an extra press without advancing a full logical line — account for this when counting presses. Also: the `Home` key exhibits smart-home toggling (first non-whitespace vs. true column 0) that made precise column counting unreliable; clicking at a fixed pixel x-position just right of the line-number gutter (x≈351 in this editor's current layout) reliably lands the cursor at true column 0 instead. Final verification of all text used `get_page_text` (actual DOM content) rather than screenshot pixel-judgment, which had proven misleading earlier in the recovery.
+
+### Queued for next session
+- Once Paul pushes `index.html` + `2026-06-17-SmartCart-Backend.gs` to GitHub (commands provided below), confirm the live PWA at `https://getsmartcart.github.io/smartcart/` shows footer `v0.3.2` and that a real receipt scan with a printed per-unit price (e.g. weighed produce) no longer triggers an unnecessary package-label-scan prompt.
+- Carried-over backlog, untouched this session: Weekly Compare batch trigger mechanism decision, fake-sale-detector flag rendering decision, `Product URL(s)` population, `Default Unit` pre-fill (Roadmap item 5).
+
+---
+
+## 2026-06-20 — Manual data fix (FreshCo Sirloin Tip Steak unit price)
+
+Paul uploaded a photo of the package price label (Sirloin Tip Steak, 0.776 kg, $17.61/kg, $13.67 total) and asked to update the matching FreshCo receipt with the unit price. No exact 06/15 match exists — the only FreshCo Sirloin Tip Steak row with a matching $13.67 total is dated **2026-06-17**, so that row was updated (price match is unambiguous; flagged to Paul for confirmation).
+
+- **Purchases row 8:** Package Size → `0.776 kg`, Unit Price → `17.61`. Regular Price confirmed unchanged at `13.67` (briefly mis-typed to 17.61 via a Tab-count error, caught and corrected before moving on).
+- **PriceHistory row 8:** Unit Price (col F) → `17.61`. A Name-Box click meant to jump to cell G7 instead landed as a literal edit on the still-selected F8, briefly overwriting it with the text "G7" — caught immediately via screenshot and corrected back to `17.61`.
+
+### Two issues found while verifying (not fixed, flagging for Paul)
+
+1. **PriceHistory legacy rows have a real column-shift artifact.** Confirmed by clicking into cells directly (formula bar, not screenshot pixel-position): every other 2026-06-17/05-27 row in PriceHistory has "Receipt Photo" sitting in column F (Unit Price) instead of column G (Source), with Regular Price (E) reading `0`. Root cause: these rows were written before the `Regular Price` column existed in the `priceHistRows.push(...)` array (added 2026-06-20, Session 12) — the old 6-field push left everything from Regular Price onward shifted one column left, and Source has nowhere to land. Cosmetic/historical only — doesn't affect new rows — but would skew any future fake-sale-detector or rolling-average logic that reads PriceHistory columns by position. Needs a one-time backfill/cleanup pass if Paul wants those old rows corrected.
+2. **`scanPackageLabel` never actually saves the unit price it extracts.** Confirmed by reading `handleUpdateReceipt_` (only accepts `packageSize` + `notesAppend`, no unit-price parameter) and `handleScanPackageLabel_` (returns `pricePerKg` but nothing downstream forwards it to `updateReceipt`). So today's tightened scan trigger (Session 13) will correctly detect *when* unit price is missing, but the package-label-scan flow built to fill that gap can't actually persist the value once scanned — it would need to be entered manually each time, same as just done here. Worth fixing `handleUpdateReceipt_` + `index.html`'s post-scan save call in a future session.
+
+### Live verification walkthrough (same day, no code change)
+
+Paul scanned a real Safeway Fortune St. receipt on the live PWA (7 items: Pretzel Sticks, Bean Sprouts, Shrimp 91/120 PeelCkd $10.99, Ham Instore $7.77, 2× Whole Wheat bread, White Bread). At the Confirm screen he asked whether Ham and Shrimp should trigger a package-label-scan prompt.
+
+- Walked through the trigger rule against the actual receipt photo: none of Shrimp, Ham, or Bean Sprouts print a per-unit ($/kg, $/lb) price — flat totals only — and all three map to Proteins/Produce in the 12-row category taxonomy (`CATEGORY_DATA` in `SheetSetup.gs` has no separate Seafood/Deli category; both roll into Proteins). So all three are expected to queue for a package-label-scan prompt.
+- Clarified the flow for Paul: the queue is only built and the prompts only fire **after** "Save All" is tapped — not on the Confirm screen itself. He hadn't realized the prompts come after saving, not before.
+- Also clarified the Search tab is still an unbuilt placeholder (confirmed by checking the current PWA Shell section of this file) — not a bug, just not built yet.
+- No code or data changed in this exchange — confirmation/walkthrough only. Outcome of his Save All on this particular receipt (did Shrimp/Ham/Bean Sprouts actually queue as expected) not yet confirmed back to Claude — worth a quick check next session if it's still on his mind.
+
+### Session wrap (this entry)
+- Files touched this session: live Sheet data only (Purchases row 8, PriceHistory row 8 — see above); `PROJECT.md` and `JOURNAL.md` updated to log the fix and the two discovered gaps. No `.gs` or `index.html` changes — Web App Version 5 and local v0.3.2 are unchanged from Session 13.
+- Two open product gaps flagged to Paul (unitPrice never persisted by `scanPackageLabel`/`updateReceipt`; legacy PriceHistory column shift) — not yet actioned, no decision made on priority.
+- ~~`index.html` + `2026-06-17-SmartCart-Backend.gs` still not pushed to GitHub as of this entry~~ — **correction, 2026-06-20:** confirmed via live site fetch + local git log that this was already pushed (commit `b4fd30b`, branch up to date with `origin/main`). Live PWA at `getsmartcart.github.io/smartcart` already serves v0.3.2. The "not yet pushed" note above was stale.
+
+---
+
+## 2026-06-20 — Session 12 source URLs retrieved (follow-up)
+
+Paul asked which URLs Session 12's 7-store dry-run actually used — the written report (`2026-06-20-SmartCart-WeeklyDealReport.md`) only named sources, not full links. Looked up and confirmed: Safeway and Save-On-Foods both via `flyers-on-line.com` (https://www.flyers-on-line.com/safeway/british-columbia and .../save-on-foods/british-columbia); Costco via Costco West Fan Blog (https://cocowest.ca/); Superstore via weeklyflyer.com (image-only, no data); Independent Grocer via flyerbox.ca Kamloops page (image-only, no data). Walmart's exact aggregator was never recorded in Session 12 and couldn't be confirmed retroactively — flagged as unverified rather than guessed. Full table with URLs and confidence added to `PROJECT.md` under "Price Data Sources — Fluid" so future weekly runs can reuse these directly instead of re-discovering them.
+
+---
+
+## 2026-06-20 — Walmart source upgraded (follow-up)
+
+Paul asked for a better Walmart source after the above turned up nothing confirmed. Searched and tested `web_fetch` directly against walmart.ca's own grocery section (e.g. https://www.walmart.ca/en/cp/grocery/10019) — confirmed it's plain HTML, fully text-readable (unlike the Superstore/Independent flyer images), and returns real line items with current price, Rollback "Was/Now" sale price, and per-unit pricing ($/100g, $/100ml) already built in. This beats any aggregator: no need for a Walmart flyer source at all going forward — query walmart.ca's grocery category/product pages directly. Note: this is Walmart's national online catalog, not confirmed to vary by store; Session 12's earlier spot-check (peanut butter) also found Walmart.ca's online price matched a high-confidence nationwide rate, consistent with this. PROJECT.md's Confirmed Sources table updated — Walmart row now High confidence, pointing at walmart.ca directly instead of an unrecorded aggregator.
+
+---
+
+## 2026-06-20 — Source feed file created; weekly price-check skill queued
+
+Paul asked to notate the 6 confirmed source URLs as a feed for a future skill, to automate the weekly grocery price search (skill itself to be written up later). Created `2026-06-20-SmartCart-PriceSourceFeed.md` — a clean, skill-ready table (Store / URL / Format / Confidence / Notes) separate from PROJECT.md's narrative version, intended as the single source of truth a future skill reads from rather than hardcoding URLs. PROJECT.md cross-referenced to it. Added a TODO_LIST.md entry ("SmartCart — Weekly Grocery Price Check Skill") queuing the build for a later session, flagging the open problem already known from Session 12: 2 of 6 sources (Superstore, Independent Grocer) are image-only and will need a Claude Vision read step, not just web fetch.
+
+---
+
+## 2026-06-20 — Nav tab strategy review (follow-up)
+
+Paul reviewed all four nav tabs against what's been learned this session. Verdict: Scanner is the proven asset (data entry + unit pricing); Search is structurally weak — grocery pricing is deliberately hard to compare programmatically (no APIs, image-only flyers, app-gated personalized pricing); Report (Layer 2) is heading toward redundant once the planned Weekly Grocery Price Check skill exists; Settings is thin once trusted stores and Thursday cadence are locked in.
+
+Discussed reframe: lean on owned purchase-history data (the real moat) instead of fighting external sites for live comparison. Ideas raised, none built or committed yet:
+- New properties to capture: best-before/expiry dates (ties to bulk-value/waste, Core Problem #2), loyalty/coupon program data (PC Optimum, Scene+) as a more reliable "deals" source than public flyers, household/consumption profile (servings, freezer capacity) to power bulk-value math, store-visit cadence (free — already derivable from existing Purchases data).
+- Tab restructuring idea: Search → search own price history instead of the live web; Report → demote to a background skill + email (FSRI pattern), not a nav tab; freed slot → Insights/Trends (Layer 4, already in Vision, not yet built).
+- Coupon tracking gap: Purchases captures Price Paid vs Regular Price (catches flyer sales) but nothing distinguishes a separate manufacturer/loyalty coupon — would need its own field if Paul wants that isolated.
+
+Paul then raised the real test: is bulk buying (Costco briskets/loins, home-butchered) actually saving money, and is sale-chasing worth the effort for a single-person household? Discussed: tracking spend is the guaranteed value regardless; sale-chasing at low volume is probably modest; the fake-sale/inflated-discount detector (Roadmap #12) is a more honest value prop than "catches deals" since it stops an overcharge rather than promising a find. Proposed reframing the FSRI tie-in (Roadmap #9) from a narrative verdict into an actionable "stock up now, before the forecast price rise" trigger on shelf-stable categories — not yet written into the Roadmap.
+
+Trip-worthiness reopened: Paul's eggs/Creamo example (Costco cheaper per unit, but consumption rate too low and trip too far to be worth it) shows the "Trip cost threshold: Deferred indefinitely" Resolved Decision was deferred for the wrong reason — modeling fuel/distance precisely is unworkable, but a simple tiered filter isn't: Store Tier (Local vs. occasional-trip) + per-item consumption interval (Roadmap #10, already planned) + a flat total-savings threshold before a distant store surfaces as "worth a trip." Not yet confirmed or threshold-numbered — Paul moved to the bulk-meat question before settling this.
+
+Bulk-meat yield test methodology refined by Paul: don't compare bulk sticker price to retail directly — record (1) purchase price + raw weight, (2) trimmed/usable weight after fat removal, (3) weight of each resulting product category (roast, stew chunks, steak) separately, then compare each category's weight against its own retail $/100g and sum, vs. what was actually paid. Clarified for accuracy: brisket (flat + point muscles) naturally yields roasts and stew/chunk meat, not steaks — true steaks come from the loin purchase, not the brisket. Important for correctly attributing yield categories to the right primal before running the retail comparison. No numbers run yet — queued for next time Paul does an actual cutting session.
+
+**Next session:** none of the above is built or written into Roadmap/Resolved Decisions yet — all flagged in PROJECT.md "Open Questions" for follow-up. Nothing else queued from prior sessions was actioned this turn (package-label persistence fix, Weekly Compare trigger mechanism, Product URL(s) population, Default Unit pre-fill all still pending from Session 13).
+
+---
+
+## 2026-06-21 — Session 14 (Receipt Total Capture Fix)
+
+### What was done
+- Paul asked how much he'd spent on groceries to date from Purchases data (FreshCo $56.38, Save-On-Foods $6.86, Safeway $34.91, Safeway Pharmacy $25.06). Separately confirmed a duplicate "WholeWheat100%Bread" line was a real double-buy, not a data bug, and confirmed receipt photos themselves are never archived anywhere — `scanReceipt` sends `imageBase64` to Claude Vision for parsing but never persists it (no `DriveApp` calls anywhere in `Backend.gs`).
+- Paul then caught a real discrepancy: his physical Safeway receipt's printed TOTAL was $35.21 (SUBTOTAL $34.91 + 5% GST $0.30 on the one taxable item, Pretzel Sticks — most groceries are zero-rated in BC, snack foods aren't), but Purchases summed to $34.91. He supplied the actual receipt photo as evidence only — explicitly not a new scan to submit to Sheets.
+- Read `Backend.gs` to root-cause it: `handleScanReceipt_`'s Claude Vision prompt explicitly said *"Skip subtotal, tax, total, and loyalty or points lines, only include actual purchased items."* This was a deliberate Session-1 design choice, not a bug — but it meant every logged spend total was item-subtotal-only, silently undercounting by tax on any non-zero-rated item. Confirmed via the GST math (5% × $5.99 ≈ $0.30) that this fully explains the gap.
+- Proposed two schema options (separate Receipts tab vs. Tax+Total columns on Purchases) via AskUserQuestion; Paul rejected both framings and narrowed scope directly: no tax tracking at all, only capture the receipt's printed Total, rename rather than add where possible. Implemented accordingly — single new column, no Tax field:
+  - **`2026-06-17-SmartCart-Backend.gs`:** `handleScanReceipt_`'s prompt now extracts `total` (the printed grand Total, after tax — 0 if not legible) instead of discarding it; still skips tax/subtotal lines as line items. Return shape gained `total`. `handleAddReceipt_` now reads `p.total`, writes it as `receiptTotal`, and pushes it as the 17th element of every `purchaseRows` row for that receipt (same denormalized repeat-per-row pattern as Date/Store/Receipt ID). Added a comment above `handleUpdateReceipt_` noting column 17 is untouched by that function (it only reads/writes columns 1–16).
+  - **`2026-06-17-SmartCart-SheetSetup.gs`:** Purchases header array gained `'Receipt Total'` as the 17th header. File's existing "safe to re-run, never deletes columns" guarantee covers this addition.
+  - **`index.html`:** new `currentReceiptTotal` state var captures `data.total` from the `scanReceipt` response; passed through as `total: currentReceiptTotal` in the `addReceipt` POST; reset to 0 on "Done." No new visible UI field — Total stays silent/passthrough like `receiptId`, per the locked "fixed layout, no shifting elements" principle. Footer bumped **v0.3.2 → v0.3.3 — Receipt Total Capture**.
+- Updated `PROJECT.md`: Data Architecture intro, Purchases column table, Apps Script Backend `scanReceipt` contract, a new Data Entry Model bullet, a new resolved Known Issues entry documenting the root cause and fix, a pending-redeploy note on the Apps Script Deployment bullet, and a new dated Session Restore Instructions entry — all cross-referencing each other.
+
+### Files changed
+- `Projects/SmartCart/2026-06-17-SmartCart-Backend.gs` — `total` extraction + return shape (`handleScanReceipt_`), `receiptTotal` write as column 17 (`handleAddReceipt_`), clarifying comment (`handleUpdateReceipt_`).
+- `Projects/SmartCart/2026-06-17-SmartCart-SheetSetup.gs` — `'Receipt Total'` added to Purchases header array.
+- `Projects/SmartCart/index.html` — `currentReceiptTotal` state, captured on scan, sent on save, reset on Done; footer v0.3.2 → v0.3.3.
+- `Projects/SmartCart/PROJECT.md` — Data Architecture, Apps Script Backend, Data Entry Model, Known Issues, Deployment note, Session Restore Instructions all updated; header "Last Updated" bumped to June 21, 2026.
+- `Projects/SmartCart/JOURNAL.md` — this entry.
+
+### Current status
+Fix built and verified locally (code read back, logic traced by hand — no live test, see below). **Not yet live:** Apps Script is still Version 5 (no `total` support yet); the live Sheet's Purchases tab still has only 16 headers; `index.html`/`Backend.gs`/`SheetSetup.gs` are not yet pushed to GitHub. Three manual steps remain, all Paul's:
+1. Paste the updated `Backend.gs` into the "SmartCart Setup" Apps Script editor and deploy a new version (Version 6).
+2. Add "Receipt Total" as column 17's header on the live Sheet — either re-run `setupSmartCartSheet` (additive-only, safe) or type it in directly.
+3. `git add . && git commit -m "v0.3.3: capture receipt Total (incl. tax), not just item subtotal" && git push`.
+
+### Queued for next session
+- Confirm the three deploy steps above are done; then test one real receipt scan end-to-end and confirm the new Purchases row's Receipt Total column matches the photographed receipt's printed Total.
+- Resume Golf question from earlier this session ("Resume Golf? — Session 24 closed, next task Dave's onboarding via onboarding.html") was raised but not answered — Paul pivoted into this fix instead. Still open if he wants to pick it up.
+- Everything else queued from Sessions 12–13 (Weekly Compare batch trigger mechanism, fake-sale-detector flag rendering, `Product URL(s)` population, `Default Unit` pre-fill, package-label unit-price persistence, legacy PriceHistory column-shift backfill) remains untouched.
+
+---

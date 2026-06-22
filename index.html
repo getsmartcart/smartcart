@@ -426,7 +426,7 @@
 
   </main>
 
-  <footer class="app-footer">SmartCart v0.3.2 — Missing Unit Price Scan</footer>
+  <footer class="app-footer">SmartCart v0.3.3 — Receipt Total Capture</footer>
 
 </div>
 
@@ -475,6 +475,7 @@
 
   let groceryItemsCache = [];
   let currentReceiptId = null;
+  let currentReceiptTotal = 0; // printed grand Total from the last scanReceipt call (incl. tax) — added 2026-06-21
   let packageQueue = [];
   let packageQueueIndex = 0;
 
@@ -612,6 +613,7 @@
         }
         confirmStoreEl.value = data.store || '';
         confirmDateEl.value = data.date || '';
+        currentReceiptTotal = parseFloat(data.total) || 0;
         renderConfirmRows(Array.isArray(data.items) ? data.items : []);
         showScannerView('confirm');
       })
@@ -717,6 +719,7 @@
         date: confirmDateEl.value,
         receiptId: receiptId,
         source: 'Receipt Photo',
+        total: currentReceiptTotal,
         items: items
       })
     }).then(function (r) { return r.json(); })
@@ -752,6 +755,7 @@
     packageQueue = [];
     packageQueueIndex = 0;
     currentReceiptId = null;
+    currentReceiptTotal = 0;
     showScannerView('idle');
   });
 </script>

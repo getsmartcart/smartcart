@@ -77,6 +77,10 @@ function doPost(e) {
  *   date: '2026-06-17',          // yyyy-mm-dd
  *   receiptId: 'uuid-or-blank',
  *   source: 'Receipt Photo' | 'Email' | 'Manual',
+ *   total: number,   // receipt's printed grand Total (incl. tax) — 0/omitted if unknown.
+ *                     // Written to the new "Receipt Total" column (17), repeated on
+ *                     // every item row of this receipt, same denormalized pattern as
+ *                     // Date/Store/Receipt ID. Added 2026-06-21 — see PROJECT.md.
  *   items: [
  *     {
  *       itemRaw, itemCanonical, brand, packageSize, qty,
@@ -93,6 +97,7 @@ function handleAddReceipt_(p) {
   const date = sanitize_(p.date || formatDate_(new Date()));
   const receiptId = sanitize_(p.receiptId || Utilities.getUuid());
   const source = sanitize_(p.source || 'Manual');
+  const receiptTotal = parseFloat(p.total) || 0;
   const items = Array.isArray(p.items) ? p.items : [];
 
   if (items.length === 0) {
@@ -126,7 +131,8 @@ function handleAddReceipt_(p) {
       sanitize_(item.fsriCategory || ''),
       source,
       receiptId,
-      sanitize_(item.notes || '')
+      sanitize_(item.notes || ''),
+      receiptTotal
     ]);
 
     priceHistRows.push([
@@ -192,6 +198,8 @@ function handleUpdateReceipt_(p) {
   // Columns: Date(1) Store(2) Item Raw(3) Item Canonical(4) Brand(5)
   // Package Size(6) Qty(7) Price Paid(8) Regular Price(9) Unit Price(10)
   // Category(11) Subcategory(12) FSRI_Category(13) Source(14) Receipt ID(15) Notes(16)
+  // Receipt Total(17, added 2026-06-21) — not touched by this function, only
+  // read/matched via columns 1-16 below.
   const data = sh.getRange(2, 1, lastRow - 1, 16).getValues();
   let matchRow = -1;
   const itemKey = itemRaw.trim().toLowerCase();
@@ -329,7 +337,7 @@ function formatDate_(d) {
  *   imageBase64: '...',
  *   mediaType: 'image/jpeg' | 'image/png' | 'image/webp'
  * }
- * Returns: { ok: true, store, date, items: [{ itemRaw, qty, pricePaid, category, unitPrice }] }
+ * Returns: { ok: true, store, date, total, items: [{ itemRaw, qty, pricePaid, category, unitPrice }] }
  * unitPrice is the per-kg/lb/100g price ONLY if the receipt itself prints one
  * next to the line item (common for weighed meat/produce in some stores) —
  * 0 if not shown. This lets the PWA tell "receipt had it" apart from
@@ -337,6 +345,13 @@ function formatDate_(d) {
  * (see PACKAGE_SCAN_CATEGORIES in index.html). Requires ANTHROPIC_API_KEY
  * script property. Does not write to the Sheet - the PWA confirm screen
  * calls addReceipt separately once Paul approves.
+ *
+ * total is the receipt's printed grand Total (items + tax, what was actually
+ * charged) — found 2026-06-21 that the original prompt discarded this
+ * entirely, so summed Purchases spend was item-subtotal only, undercounting
+ * by the tax amount on any taxable line (e.g. snack items aren't zero-rated
+ * groceries in BC). Tax itself is still not tracked separately, by Paul's
+ * call — only the bottom-line Total matters.
  */
 function handleScanReceipt_(p) {
   const apiKey = PropertiesService.getScriptProperties().getProperty('ANTHROPIC_API_KEY');
@@ -352,10 +367,11 @@ function handleScanReceipt_(p) {
 
   const prompt = 'You are extracting structured data from a photo of a grocery store receipt. ' +
     'Return ONLY valid JSON, no markdown fences, no commentary, matching exactly this shape: ' +
-    '{"store": string, "date": "YYYY-MM-DD or empty string if not legible", "items": [{"itemRaw": string, "qty": number, "pricePaid": number, "category": string, "unitPrice": number}]}. ' +
+    '{"store": string, "date": "YYYY-MM-DD or empty string if not legible", "total": number, "items": [{"itemRaw": string, "qty": number, "pricePaid": number, "category": string, "unitPrice": number}]}. ' +
     'For pricePaid use the actual price paid for that line item (after any in-line discount shown on the receipt), not the regular price. ' +
     'unitPrice is a per-kg, per-lb, or per-100g price ONLY if the receipt itself prints one directly next to that line item (common for weighed meat/produce) — use 0 if no such per-unit price is printed on the receipt for that item. Do not estimate or compute one yourself. ' +
-    'Skip subtotal, tax, total, and loyalty or points lines, only include actual purchased items. ' +
+    'total is the receipt\'s printed grand TOTAL line (the final amount actually charged, after any tax — NOT the subtotal). Use 0 if no total is legible. ' +
+    'Skip subtotal and tax lines themselves, and loyalty or points lines — do not include them as items, only the printed grand total goes in the "total" field. ' +
     'category must be exactly one of: ' + categories.join(', ') + '. Pick the closest match if unsure.';
 
   const body = {
@@ -409,6 +425,7 @@ function handleScanReceipt_(p) {
     ok: true,
     store: parsed.store || '',
     date: parsed.date || '',
+    total: parseFloat(parsed.total) || 0,
     items: Array.isArray(parsed.items) ? parsed.items : []
   });
 }
